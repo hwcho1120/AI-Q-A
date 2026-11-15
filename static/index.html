@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>서울시 조례 Q&amp;A</title>
+<style>
+:root{
+  --bg:#f5f7fa; --card:#fff; --ink:#1b2430; --sub:#5b6675; --line:#e2e7ee;
+  --brand:#1f4e9a; --brand-soft:#e8effa; --yes:#11845b; --yes-soft:#e3f5ec;
+  --no:#c2410c; --no-soft:#fdeee5; --warn:#8a6d00; --warn-soft:#fdf6dc; --hl:#fff3b0;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0f1419; --card:#171e26; --ink:#e6ebf1; --sub:#9aa6b4; --line:#2a3440;
+  --brand:#7aa7ff; --brand-soft:#1b2a44; --yes:#4ade80; --yes-soft:#123222;
+  --no:#fb923c; --no-soft:#3a2114; --warn:#facc15; --warn-soft:#332b0c; --hl:#5a4b10;
+}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:"Pretendard","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;line-height:1.6}
+header{background:var(--brand);color:#fff;padding:18px 24px}
+header h1{margin:0;font-size:20px}
+header p{margin:2px 0 0;opacity:.85;font-size:13px}
+main{max-width:1280px;margin:0 auto;padding:20px 16px;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px}
+@media (max-width:900px){main{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px}
+.ask{display:flex;gap:8px}
+.ask textarea{flex:1;resize:vertical;min-height:52px;padding:12px;font:inherit;border:1px solid var(--line);
+  border-radius:8px;background:var(--bg);color:var(--ink)}
+button{font:inherit;cursor:pointer;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink);padding:8px 12px}
+button.primary{background:var(--brand);border-color:var(--brand);color:#fff;font-weight:600;padding:0 20px}
+button:disabled{opacity:.5;cursor:wait}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
+.chip{font-size:12.5px;padding:5px 10px;border-radius:999px;background:var(--brand-soft);border:none;color:var(--ink);text-align:left}
+.chip b{color:var(--brand);margin-right:4px}
+.opts{margin-top:10px;font-size:13px;color:var(--sub)}
+.label{font-size:12px;color:var(--sub);font-weight:600;margin-bottom:6px;letter-spacing:.02em}
+.answer{font-size:17px;white-space:pre-wrap}
+.badge{display:inline-block;font-weight:700;padding:2px 10px;border-radius:6px;margin-right:6px;font-size:14px}
+.b-yes{background:var(--yes-soft);color:var(--yes)} .b-no{background:var(--no-soft);color:var(--no)}
+.b-unk{background:var(--warn-soft);color:var(--warn)}
+.cites{display:flex;flex-direction:column;gap:6px;margin-top:14px}
+.cite{text-align:left;border-left:4px solid var(--brand);background:var(--brand-soft);border-top:none;border-right:none;border-bottom:none}
+.cite.active{outline:2px solid var(--brand)}
+.meta{display:flex;flex-wrap:wrap;gap:16px;margin-top:14px;font-size:13px;color:var(--sub)}
+.meta a{color:var(--brand)}
+.steps{display:flex;gap:6px;margin-top:16px;flex-wrap:wrap}
+.step{flex:1;min-width:120px;font-size:12.5px;padding:8px;border-radius:8px;border:1px solid var(--line);color:var(--sub)}
+.step.ok{border-color:var(--yes);color:var(--yes)} .step.stop{border-color:var(--no);color:var(--no);font-weight:600}
+details{margin-top:12px;font-size:13px;color:var(--sub)}
+details li{word-break:break-all}
+.right{position:sticky;top:16px;align-self:start;max-height:calc(100vh - 32px);overflow:auto}
+@media (max-width:900px){.right{position:static;max-height:none}}
+.src h2{margin:0 0 4px;font-size:17px}
+.para{padding:8px 10px;border-radius:6px;margin:4px 0;white-space:pre-wrap;font-size:14.5px}
+.para.hl{background:var(--hl);border-left:4px solid var(--warn)}
+table{border-collapse:collapse;width:100%;font-size:13px;margin:10px 0}
+td,th{border:1px solid var(--line);padding:5px 7px;text-align:center}
+th{background:var(--brand-soft)}
+.muted{color:var(--sub);font-size:14px}
+.cmp{margin-top:16px;border-top:1px dashed var(--line);padding-top:14px}
+.cmp .answer{font-size:14.5px}
+.spinner{display:inline-block;width:14px;height:14px;border:2px solid var(--line);border-top-color:var(--brand);border-radius:50%;animation:s 0.8s linear infinite;vertical-align:-2px;margin-right:6px}
+@keyframes s{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<header>
+  <h1>서울시 조례 Q&amp;A</h1>
+  <p>주차장 · 동물보호 · 자전거 · 도시공원 · 청년 · 금연 조례 원문에서 근거를 찾아 답합니다. 근거가 없으면 답하지 않습니다.</p>
+</header>
+<main>
+  <section>
+    <div class="card">
+      <div class="ask">
+        <textarea id="q" placeholder="예) 장애인은 공영주차장 요금을 할인받을 수 있나요?"></textarea>
+        <button class="primary" id="go">질문</button>
+      </div>
+      <div class="opts"><label><input type="checkbox" id="cmp"> LLM 단독 답변과 비교 (시연용)</label></div>
+      <div class="chips" id="chips"></div>
+    </div>
+    <div id="out"></div>
+  </section>
+  <aside class="card right src" id="src">
+    <div class="label">원문 보기</div>
+    <p class="muted">답변의 인용 조항을 누르면 법제처 원문이 여기에 표시되고, 근거가 된 항이 강조됩니다.</p>
+  </aside>
+</main>
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+const STAGES = [
+  {key:"retrieve", name:"① 조문 검색", stopAt:["min_score"], why:"관련 조문의 검색 점수가 기준 미만"},
+  {key:"judge", name:"② 근거 판단 (Solar)", stopAt:["found_false","no_evidence","repair_found_false"], why:"검색된 조문으로는 답할 수 없다고 판단"},
+  {key:"verify", name:"③ 근거 일치 검증", stopAt:["not_grounded"], why:"답변이 원문과 일치하지 않아 폐기"},
+];
+
+fetch("/api/examples").then(r => r.json()).then(list => {
+  $("#chips").innerHTML = list.map(x =>
+    `<button class="chip" data-q="${esc(x.question)}"><b>${esc(x.type)}</b>${esc(x.question)}</button>`).join("");
+  $("#chips").onclick = e => { const b = e.target.closest(".chip"); if (b) { $("#q").value = b.dataset.q; ask(); } };
+}).catch(() => {});
+
+$("#go").onclick = ask;
+$("#q").addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); ask(); } });
+
+async function ask() {
+  const q = $("#q").value.trim();
+  if (!q) return;
+  $("#go").disabled = true;
+  const cmp = $("#cmp").checked;
+  $("#out").innerHTML = `<div class="card" style="margin-top:16px"><span class="spinner"></span>원문에서 근거를 찾는 중…</div>`;
+  const post = (url) => fetch(url, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({question:q})}).then(r => r.json());
+  try {
+    const [d, l] = await Promise.all([post("/api/ask"), cmp ? post("/api/llm_only") : null]);
+    render(d, l);
+  } catch (e) {
+    $("#out").innerHTML = `<div class="card" style="margin-top:16px">서버 호출 실패: ${esc(e)}</div>`;
+  } finally { $("#go").disabled = false; }
+}
+
+function render(d, llm) {
+  const r = d.result, unknown = !r.citation || r.citation.length === 0;
+  let ans = esc(r.answer), badge = "";
+  const m = r.answer.match(/^(네|아니요),\s*/);
+  if (unknown) badge = `<span class="badge b-unk">확인 불가</span>`;
+  else if (m) { badge = `<span class="badge ${m[1]==="네"?"b-yes":"b-no"}">${m[1]}</span>`; ans = esc(r.answer.slice(m[0].length)); }
+
+  const stopIdx = STAGES.findIndex(s => s.stopAt.includes(d.stage));
+  const steps = STAGES.map((s, i) => {
+    if (d.stage === "answered" || (stopIdx >= 0 && i < stopIdx)) return `<div class="step ok">✓ ${s.name}</div>`;
+    if (i === stopIdx) return `<div class="step stop">✕ ${s.name}<br>${s.why}</div>`;
+    return `<div class="step">· ${s.name}</div>`;
+  }).join("") + (d.stage === "error" ? `<div class="step stop">시간 초과·오류 → 안전하게 '확인 불가'</div>` : "");
+
+  const cites = (r.citation || []).map((c, i) =>
+    `<button class="cite" data-label="${esc(c)}">📎 ${esc(c)}</button>`).join("");
+
+  const hits = (d.hits || []).map(h => `<li>${esc(h[0])} <span>(점수 ${h[1]})</span></li>`).join("");
+  const queries = (d.queries || []).map(x => `<li>${esc(x)}</li>`).join("");
+
+  $("#out").innerHTML = `
+  <div class="card" style="margin-top:16px">
+    <div class="label">답변</div>
+    <div class="answer">${badge}${unknown ? "조례 6종에서 이 질문의 근거 조항을 찾지 못했습니다. 근거 없이 추측해 답하지 않습니다." : ans}</div>
+    ${cites ? `<div class="cites"><div class="label" style="margin:0">근거 조항 (누르면 원문)</div>${cites}</div>` : ""}
+    <div class="meta">
+      ${r.effective_date ? `<span>시행일 <b>${esc(r.effective_date)}</b></span>` : ""}
+      ${r.source_url ? `<a href="${esc(r.source_url)}" target="_blank" rel="noopener">법제처 원문 열기 ↗</a>` : ""}
+      <span>응답 ${d.elapsed}초</span>
+    </div>
+    <div class="steps">${steps}</div>
+    <details><summary>검색 과정 보기</summary>
+      <div style="margin-top:6px">질문 재작성</div><ul>${queries}</ul>
+      <div>검색된 후보 조문</div><ul>${hits}</ul>
+    </details>
+    <details><summary>API 응답 JSON (채점 형식)</summary><pre style="white-space:pre-wrap">${esc(JSON.stringify(r, null, 2))}</pre></details>
+    ${llm ? `<div class="cmp"><div class="label">비교: 검색 없이 LLM 단독 (${llm.elapsed}초) — 조항·링크·시행일을 지어낼 수 있음</div><div class="answer">${esc(llm.answer)}</div></div>` : ""}
+  </div>`;
+
+  document.querySelectorAll(".cite").forEach(b => b.onclick = () => {
+    document.querySelectorAll(".cite").forEach(x => x.classList.remove("active"));
+    b.classList.add("active"); showSource(b.dataset.label);
+  });
+  const first = document.querySelector(".cite"); if (first) first.click();
+}
+
+async function showSource(label) {
+  $("#src").innerHTML = `<div class="label">원문 보기</div><span class="spinner"></span>불러오는 중…`;
+  const s = await fetch("/api/source?label=" + encodeURIComponent(label)).then(r => r.json());
+  if (!s.found) { $("#src").innerHTML = `<div class="label">원문 보기</div><p class="muted">원문을 찾지 못했습니다: ${esc(label)}</p>`; return; }
+  let body = "";
+  if (s.kind === "article") {
+    body = s.paragraphs.map(p => `<div class="para ${s.highlight && p.no === s.highlight ? "hl" : (s.highlight ? "" : "hl")}">${esc(p.text)}</div>`).join("");
+  } else if (s.kind === "annex") body = mdToHtml(s.markdown);
+  else body = `<pre style="white-space:pre-wrap;font-size:12px">${esc(s.text)}</pre>`;
+  $("#src").innerHTML = `
+    <div class="label">원문 보기</div>
+    <h2>${esc(s.law)} ${esc(s.article || "")}${s.title ? `(${esc(s.title)})` : ""}</h2>
+    <div class="meta" style="margin:0 0 10px">
+      <span>시행일 <b>${esc(s.effective_date)}</b></span>
+      <a href="${esc(s.source_url)}" target="_blank" rel="noopener">법제처 국가법령정보센터 ↗</a>
+    </div>${body}`;
+  const hl = document.querySelector(".para.hl"); if (hl && s.highlight) hl.scrollIntoView({block:"center", behavior:"smooth"});
+}
+
+function mdToHtml(md) {
+  const out = [], lines = md.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const t = lines[i].trim();
+    if (t.startsWith("|")) {
+      const rows = [];
+      while (i < lines.length && lines[i].trim().startsWith("|")) { rows.push(lines[i].trim()); i++; }
+      i--;
+      const cells = rows.filter(r => !/^\|\s*-{3}/.test(r)).map(r => r.replace(/^\||\|$/g, "").split("|").map(c => c.trim()));
+      out.push("<table>" + cells.map((c, ri) => "<tr>" + c.map(x => ri < 3 && cells.length > 3 && isNaN(x.replace(/,/g, "")) ? `<th>${esc(x)}</th>` : `<td>${esc(x)}</td>`).join("") + "</tr>").join("") + "</table>");
+    } else if (t.startsWith("#")) out.push(`<h3 style="font-size:15px;margin:12px 0 4px">${esc(t.replace(/^#+\s*/, ""))}</h3>`);
+    else if (t) out.push(`<div style="font-size:13.5px">${esc(t.replace(/^-\s*/, ""))}</div>`);
+  }
+  return out.join("");
+}
+</script>
+</body>
+</html>

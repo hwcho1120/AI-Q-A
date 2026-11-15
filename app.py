@@ -20,6 +20,12 @@ import rag
 app = FastAPI(title="서울시 조례 Q&A")
 log = logging.getLogger("uvicorn.error")
 
+try:  # 시연 화면(/, /api/*). 실패해도 채점용 /ask 는 그대로 동작해야 합니다.
+    import ui_api
+    app.include_router(ui_api.router)
+except Exception as _e:  # noqa: BLE001
+    log.warning("UI disabled: %r", _e)
+
 
 @app.exception_handler(RequestValidationError)
 async def bad_request(request: Request, exc: RequestValidationError):
