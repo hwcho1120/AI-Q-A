@@ -7,6 +7,7 @@
 """
 import json
 import math
+import time as _time
 import re
 from collections import Counter
 
@@ -250,31 +251,131 @@ def expand_refs(hits, max_total=None, hops=2):
     return out
 
 
+_ANNEX_OF = re.compile(r"\((제\d+조(?:의\d+)?)\s*(?:제?(\d+)항)?\s*관련\)")       # 별표 제목의 '(제9조 제1항관련)'
+_ANNEX_REF = re.compile(r"별표\s*(\d*)")
+_DEF_TERM = re.compile(r'"([^"]{1,20})"(?:이)?(?:란|라 함은|이라 함은)')
+
+
+def _links():
+    """색인에서 미리 계산하는 연결: 별표 ↔ 관련 본문 조항(양방향), 조례별 정의 조항과 정의된 용어."""
+    key = config.CHUNK_UNIT + ":links"
+    if key in _cache:
+        return _cache[key]
+    _load()
+    groups = _cache[config.CHUNK_UNIT + ":groups"]
+    labels = {c["label"] for g in groups.values() for c in g}
+    links, defs = {}, {}
+    for g in groups.values():
+        for c in g:
+            law, lab = c["law"], c["label"]
+            head = c.get("context", c["text"]).split("\n", 1)[0]
+            body = c.get("context", c["text"])
+            if " 별표" in lab:                                   # 별표 → 관련 본문
+                m = _ANNEX_OF.search(head.replace(" ", "")) or _ANNEX_OF.search(head)
+                if m:
+                    art, para = m.group(1), m.group(2)
+                    tgt = f"{law} {art} 제{para}항" if para else f"{law} {art}"
+                    cands = [tgt] if tgt in labels else [x["label"] for x in groups.get(f"{law} {art}", [])][:2]
+                    for t in cands:
+                        links.setdefault(lab, []).append(t)
+                        links.setdefault(t, []).append(lab)       # 본문 → 별표 (역방향)
+            else:
+                for no in _ANNEX_REF.findall(body.split("\n", 1)[-1]):  # 본문이 '별표 1'을 언급
+                    tgt = f"{law} 별표 {no}" if no else f"{law} 별표"
+                    if tgt in labels:
+                        links.setdefault(lab, []).append(tgt)
+                if "(정의)" in head:                             # 정의 조항
+                    terms = set(_DEF_TERM.findall(body))
+                    if terms:
+                        d = defs.setdefault(law, {"labels": [], "terms": set()})
+                        d["labels"].append(lab)
+                        d["terms"] |= terms
+    _cache[key] = (links, defs)
+    return links, defs
+
+
+def expand_links(hits, question, max_total=None):
+    """색인에서 미리 계산한 연결로 근거를 보강합니다.
+    ① 별표가 걸리면 그 별표를 정한 본문 조항을, 본문이 걸리면 그 조항이 가리키는 별표를 덧붙입니다.
+       (요금표만 보고 '원칙은 무료' 같은 본문 조건을 놓치는 것을 막기 위함)
+    ② 질문에 조례가 정의한 용어(예: 등록대상동물, 청년)가 나오면 그 조례의 정의 조항을 덧붙입니다.
+    """
+    max_total = max_total or config.MAX_CONTEXT
+    links, defs = _links()
+    groups = _cache[config.CHUNK_UNIT + ":groups"]
+    by_label = {c["label"]: c for g in groups.values() for c in g}
+    out, seen = list(hits), {h["label"] for h in hits}
+
+    def add(lab, why):
+        if lab in by_label and lab not in seen and len(out) < max_total:
+            seen.add(lab)
+            out.append({**by_label[lab], "score": 0.0, "cos": None, "link_of": why})
+
+    for h in hits[:config.SIBLING_FROM_TOP]:
+        for lab in links.get(h["label"], []):
+            add(lab, h["label"])
+    q = re.sub(r"\s+", "", question)
+    for law in dict.fromkeys(h["law"] for h in hits[:config.SIBLING_FROM_TOP]):
+        d = defs.get(law)
+        if d and any(re.sub(r"\s+", "", t) in q for t in d["terms"]):
+            for lab in d["labels"]:
+                add(lab, "정의")
+    return out
+
+
+QTYPES = ["값 조회", "해당 여부", "원칙과 예외", "절차·권한"]
+ANSWER_FRAMES = """- qtype을 먼저 고르고, 유형별 순서대로 sentences를 쓴다.
+  · 값 조회(금액·기간·나이·비율 등): ① 값 ② 그 값이 적용되는 조건(급지·대상·단위) ③ 단서가 있으면 단서. 계산이 필요하면 ①을 "원문 값 × … = 결과" 계산식으로 쓴다.
+  · 해당 여부(내가/이 경우 적용되나): ① 결론(해당한다/해당하지 않는다) ② 판단 기준이 된 조건 ③ 단서·예외.
+  · 원칙과 예외(감면 중복, 원칙 무료+예외 유료 등): ① 원칙 ② 예외·단서 ③ 질문 상황에 적용한 결과.
+  · 절차·권한(누가, 어떻게, 언제까지): ① 주체와 할 일 ② 기한·방법 ③ 세부가 위임돼 있으면 위임 사실."""
+
+
 # ------------------------------------------------------------ 답변
 SYSTEM = """너는 서울특별시 조례 질의응답 도우미다.
 규칙:
 - 반드시 아래 [근거]에 적힌 내용만으로 답한다. 근거에 없는 내용은 추측하거나 덧붙이지 않는다.
-- conclusion 필드: 질문이 예·아니요로 답할 질문("~할 수 있나요/되나요/받을 수 있나요/내야 하나요")이면
+- conclusion 필드는 sentences를 다 쓴 뒤에, 첫 문장이 내린 결론을 요약해 고른다. 질문이 예·아니요로 답할 질문("~할 수 있나요/되나요/받을 수 있나요/내야 하나요")이면
   질문이 묻는 그대로에 대한 답을 고른다. 예) "둘 다 받을 수 있나요?"→받을 수 없으면 "아니요", "돈을 내야 하나요?"→원칙적으로 무료면 "아니요".
   "얼마/몇 살/어떻게 되나요"처럼 값·결과를 묻는 질문이면 "해당없음".
-- answer는 "네"나 "아니요"로 시작하지 말고, 첫 문장에 결론(값·결과·가능 여부)을 바로 쓴다. (앞머리 "네,/아니요,"는 시스템이 붙인다)
+- 답변은 sentences에 한 문장씩 나눠 쓴다. 각 문장의 evidence에는 그 문장의 내용이 실제로 적힌 근거 조항 이름(<근거 조항="..."> 값)을 고른다.
+  문장에 쓴 숫자(금액·비율·나이·기간)는 그 문장의 evidence 조항 원문에 그대로 있어야 한다. 계산한 값이면 계산식(예: 400원 × 12)을 함께 쓴다.
+  계산이 필요한 질문은 원문 값 → 계산식 → 결과 순서로, 계산 과정이 보이게 한 문장에 쓴다.
+- 첫 문장은 "네"나 "아니요"로 시작하지 말고 결론(값·결과·가능 여부)을 바로 쓴다. (앞머리 "네,/아니요,"는 시스템이 붙인다)
 - 이어서 결론을 뒷받침하는 조건·숫자(금액·비율·나이)와 '다만' 같은 단서·예외를 쓴다. 질문과 관계없는 절차·위임·이의제기 설명은 쓰지 않는다.
 - 일반 시민이 이해할 수 있는 쉬운 말로 2~4문장. 숫자는 근거에 적힌 값 그대로 쓴다.
+- 근거 조항이 세부 기준·방법을 '시장이 따로 정한다', '규칙으로 정한다'고 위임했으면 그 사실을 한 문장으로 알려 준다.
+- 질문이 부정형("~안 되나요?", "못 ~나요?", "~안 해도 되나요?")이면 네/아니요가 헷갈리므로 conclusion은 "해당없음"으로 하고,
+  첫 문장에 "~할 수 있습니다/~해야 합니다"처럼 결론을 긍정문으로 분명히 쓴다.
 - '다만', 괄호( ) 안의 단서는 원칙에 붙는 조건이다. 단서가 적용 범위를 넓히는지('~도 포함한다', '~를 포함') 좁히는지
   ('~는 제외한다', '~에 한정한다', '그러하지 아니하다') 정확히 읽고, 결론을 원칙과 단서를 함께 적용한 결과로 쓴다.
   예) "A 소지자는 면제(다만, B 시설은 C 소지자를 포함)" → B 시설에서도 A 소지자는 면제이고, C 소지자도 추가로 면제.
 - 감면·혜택이 둘 이상 겹치는 질문이면, 근거에 중복 적용을 정한 조항이 있는지 먼저 확인하고 그 조항에 따라 답한다.
 - 다른 조례의 조항을 끌어와 섞지 않는다. 질문이 묻는 조례의 근거만 쓴다.
-- evidence에는 답의 내용이 실제로 적힌 근거의 조항 이름(<근거 조항="..."> 값)을 고른다. 결론을 직접 정한 근거를 맨 앞에 두고, 결론에 꼭 필요한 조항만 1~3개 넣는다. 부수 설명용 조항은 넣지 않는다.
+- 결론 문장의 evidence에는 결론을 직접 정한 조항을 맨 앞에 둔다. 답 전체에서 쓰는 조항은 결론에 꼭 필요한 1~3개로 줄이고, 부수 설명용 조항은 쓰지 않는다.
 - 질문의 장소·대상·상황에 어떤 규정(과태료·감면·금지 등)이 적용된다고 답하려면, 그 장소·대상이 근거 조항의 적용 범위
   (지정 대상 목록, 감면 대상 목록 등)에 실제로 적혀 있어야 한다. 적혀 있지 않으면 적용된다고 추측하지 말고 found를 false로 한다.
 - 근거로 질문에 답할 수 없으면(질문한 규정·금액이 근거에 없으면) found를 false로 한다.
 - 자치구(OO구) 조례나 규칙은 근거로 쓰지 않는다.
+- basis 필드는 답을 쓰기 전에 먼저 정한다. 질문의 핵심(묻는 제도·행위·대상자·금액·기간·절차)이 근거에 정해져 있는가?
+  · "있음": 질문이 묻는 그 대상이 근거 조항에 정해져 있다. 세부 기준·방법을 '시장이 따로 정한다', '규칙으로 정한다'고
+    위임했더라도 제도·대상 자체가 조항에 있으면 "있음"이다. 이때 첫 문장은 "~ 제도는 조례 제○조에 있고, 세부 기준은 ~가 따로 정합니다"처럼
+    제도가 있다는 것부터 쓴다 ("정해져 있지 않습니다"로 시작하지 않는다).
+    조례가 그 행위를 금지·제한한다고 정해 둔 경우도 "있음"이다 (근거 있는 '아니요').
+  · "없음": 질문의 핵심이 근거 어디에도 정해져 있지 않고, 주변 주제의 조항만 있다.
+    "조례에는 ~에 관한 규정이 없습니다"라는 답이 될 수밖에 없다면 "없음"이다. 이때 주변 조항으로 설명하지 않는다.
+    질문이 여러 가지를 묻는데 핵심 질문의 답이 없고 부수적인 것만 있으면 "없음"이다.
+  · 질문의 대상 B가 조항에 나오지 않을 때는 질문 형태로 판단한다.
+    - B에 대한 값·절차·방법(얼마, 몇, 어떻게, 어디서)을 묻는데 조항에 B가 없으면 "없음".
+      ("조항은 A만 정하므로 B는 해당하지 않습니다" 같은 추론으로 답하지 않는다)
+    - B가 해당되는지(예/아니요)를 묻고, 조항이 기준(나이·면적·대수)이나 대상 목록을 명시해 B가 그 밖에 있음이
+      분명하면 "있음"(근거 있는 '아니요')이다. 조항이 B를 명시적으로 제외·한정·금지한 경우도 "있음".
+""" + (ANSWER_FRAMES if config.USE_ANSWER_FRAMES else "") + """
 결과는 JSON으로 낸다."""
 
 REPAIR_SYSTEM = SYSTEM + """
 
-[추가 지시] 직전 답변이 검증에서 '근거에 없는 내용이 있다'고 지적됐다. 검증은 직전 답변이 evidence로 고른 근거만 보고 이뤄졌다.
+[추가 지시] 직전 답변이 검증에서 '근거에 없는 내용이 있다'고 지적됐다. 검증은 직전 답변의 문장별 evidence로 고른 근거만 보고 이뤄졌다.
 - 근거를 잘못 골랐을 수 있으니, 전체 [근거]에서 답의 내용이 실제로 적힌 조항을 다시 확인해 고른다.
 - 지적된 문장은 고쳐 쓰지 말고 삭제한다. 새로운 주장(예: '~는 적용되지 않는다')을 덧붙이지 않는다.
 - 그래도 질문에 답할 수 없으면 found를 false로 한다."""
@@ -286,7 +387,7 @@ def _schema(hits):
     목록 밖의 조항은 스키마가 막으므로 지어낸 조항이 나올 수 없습니다.
     """
     labels = list(dict.fromkeys(h["label"] for h in hits)) or ["(없음)"]
-    return {
+    schema = {
         "type": "json_schema",
         "json_schema": {
             "name": "law_answer",
@@ -294,16 +395,29 @@ def _schema(hits):
             "schema": {
                 "type": "object",
                 "properties": {
+                    "basis": {"type": "string", "enum": ["있음", "없음"]},   # 답을 쓰기 전에 먼저 판단
                     "found": {"type": "boolean"},
+                    "sentences": {"type": "array", "items": {
+                        "type": "object",
+                        "properties": {"text": {"type": "string"},
+                                       "evidence": {"type": "array", "items": {"type": "string", "enum": labels}}},
+                        "required": ["text", "evidence"],
+                        "additionalProperties": False}},
+                    # 결론은 답변 문장을 다 쓴 뒤에 고릅니다 (먼저 고르면 나중에 쓴 본문과 어긋나는 경우가 있었음)
                     "conclusion": {"type": "string", "enum": ["네", "아니요", "해당없음"]},
-                    "answer": {"type": "string"},
-                    "evidence": {"type": "array", "items": {"type": "string", "enum": labels}},
                 },
-                "required": ["found", "conclusion", "answer", "evidence"],
+                "required": ["basis", "found", "sentences", "conclusion"],
                 "additionalProperties": False,
             },
         },
     }
+    if config.USE_ANSWER_FRAMES:            # 유형별 답변 틀: 유형을 먼저 고르게 함 (측정 결과 점수가 내려가 기본값은 끔)
+        props = schema["json_schema"]["schema"]["properties"]
+        schema["json_schema"]["schema"]["properties"] = {"basis": props["basis"], "found": props["found"],
+                                                         "qtype": {"type": "string", "enum": QTYPES},
+                                                         "sentences": props["sentences"], "conclusion": props["conclusion"]}
+        schema["json_schema"]["schema"]["required"] = ["basis", "found", "qtype", "sentences", "conclusion"]
+    return schema
 
 
 def _context(hits):
@@ -311,22 +425,147 @@ def _context(hits):
     return "\n\n".join(f'<근거 조항="{h["label"]}">\n{h.get("context", h["text"])}\n</근거>' for h in hits)
 
 
-def _ask(system, user, hits):
+def _ask(system, user, hits, effort=None):
     import upstage
     out = json.loads(upstage.chat([{"role": "system", "content": system},
                                    {"role": "user", "content": user}], response_format=_schema(hits),
-                                  reasoning_effort=config.ANSWER_REASONING or None))
+                                  reasoning_effort=(effort or config.ANSWER_REASONING) or None))
+    return _assemble(out)
+
+
+def _decision(o):
+    """답의 '판단'만 뽑습니다: 근거 유무, 결론 근거 조항. ('해당없음'과 '네'처럼 방향이 반대가 아닌 차이는 무시)"""
+    if o.get("basis") == "없음" or not o.get("found"):
+        return ("없음", None)
+    return ("있음", (o.get("evidence") or [None])[0])
+
+
+def _ask_consistent(system, user, hits, trace):
+    """같은 질문에 답을 N개 동시에 만들어 판단을 다수결로 정합니다 (자기 일관성).
+    동시에 호출하므로 응답 시간은 답 1개와 비슷합니다. 판단이 갈린 것 자체도 trace에 남깁니다."""
+    n = config.CONSISTENCY_N
+    if n < 2:
+        return _ask(system, user, hits)
+    import time as _t
+    from collections import Counter
+    from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+    # 첫 답이 나오면 나머지는 CONSISTENCY_GRACE_SEC 초만 더 기다립니다 (가장 느린 답을 기다리지 않음 → 응답 시간 상한)
+    ex = ThreadPoolExecutor(n)
+    futs = [ex.submit(_ask, system, user, hits) for _ in range(n)]
+    done, pending = wait(futs, return_when=FIRST_COMPLETED)
+    deadline = _t.time() + config.CONSISTENCY_GRACE_SEC
+    while pending and _t.time() < deadline:
+        more, pending = wait(pending, timeout=max(0.0, deadline - _t.time()), return_when=FIRST_COMPLETED)
+        done |= more
+    ex.shutdown(wait=False, cancel_futures=True)   # 늦은 답은 버림
+    outs = []
+    for f in done:
+        try:
+            outs.append(f.result())
+        except Exception:  # noqa: BLE001  일부 실패해도 나머지로 진행
+            pass
+    if not outs:                                   # 먼저 끝난 것이 전부 실패했으면 하나를 끝까지 기다림
+        for f in pending:
+            try:
+                outs.append(f.result())
+                break
+            except Exception:  # noqa: BLE001
+                pass
+    if not outs:
+        raise RuntimeError("답변 생성 전부 실패")
+    trace["consistency_n"] = len(outs)
+    decisions = [_decision(o) for o in outs]
+    # 네/아니요가 서로 반대인 경우도 판단 불일치로 봅니다
+    pol = {o.get("conclusion") for o in outs if o.get("conclusion") in ("네", "아니요")}
+    trace["consistency"] = [list(d) + [o.get("conclusion")] for d, o in zip(decisions, outs)]
+    top, cnt = Counter(decisions).most_common(1)[0]
+    trace["consistency_agree"] = cnt == len(outs) and len(pol) <= 1
+    winners = [o for o, d in zip(outs, decisions) if d == top]
+    # 결론(네/아니요/해당없음)도 다수결로 고릅니다
+    major = Counter(o.get("conclusion") for o in winners).most_common(1)[0][0]
+    return next(o for o in winners if o.get("conclusion") == major)
+
+
+def _assemble(out):
+    """문장별 답변을 합쳐 answer / evidence(문장 순서대로 중복 제거)를 만듭니다."""
+    sents = [x for x in out.get("sentences", []) if x.get("text", "").strip()]
+    out["sentences"] = sents
+    out["answer"] = " ".join(x["text"].strip() for x in sents)
+    out["evidence"] = list(dict.fromkeys(lab for x in sents for lab in x.get("evidence", [])))
     return out
+
+
+# ---- 코드 검사: 판정과 답변의 어긋남, 문장별 숫자 대조 (LLM 판단이 아닌 결정론적 검사)
+_NO_RULE = re.compile(r"(규정|기준|조항|내용|정함|정해|명시|나와|언급|근거|적혀|수치)[^.。]{0,15}?(없습니다|없어|않습니다|않아|않고)")
+_CANNOT = re.compile(r"수\s?(?:는|도)?\s?없")
+_ARTREF = re.compile(r"제\s?\d+\s?(?:조(?:의\s?\d+)?|항|호)|별표\s?\d*")
+_NUM = re.compile(r"(\d[\d,]*(?:\.\d+)?)\s*(만|천)?")
+_CALC = re.compile(r"[×x*=+/÷]|합계|계산|곱하|나누|더하")
+
+
+_DELEGATED = re.compile(r"위임|따로 정|규칙으로 정|시장이 정|구청장이 정|별도로 정")
+
+
+def _claims_no_rule(out):
+    """첫 문장이 '~규정이 없습니다'류이면 모델 판정(basis)과 상관없이 '근거 없음'으로 봅니다.
+    단, '세부는 ~가 따로 정한다(위임)'는 답은 제도 자체는 조례에 있는 경우이므로 제외합니다."""
+    first = (out.get("sentences") or [{}])[0].get("text", "")
+    # '~기준으로 달마다 받을 수 없습니다'처럼 '할 수 없다'(불가 결론)는 규정 부재가 아니므로 제외합니다.
+    hit = any(not _CANNOT.search(m.group(0)) for m in _NO_RULE.finditer(first))
+    return hit and not _DELEGATED.search(out.get("answer", "") or first)
+
+
+def _values(text):
+    vals = set()
+    for n, unit in _NUM.findall(_ARTREF.sub(" ", text)):
+        try:
+            v = float(n.replace(",", ""))
+        except ValueError:
+            continue
+        vals.add(v * {"만": 10000, "천": 1000}.get(unit, 1))
+        vals.add(v)
+    return vals
+
+
+def _number_issues(out, hits, question):
+    """문장마다 숫자가 그 문장이 고른 근거 원문(없으면 고른 근거 전체)에 있는지 대조합니다."""
+    by_label = {h["label"]: h for h in hits}
+    all_used = " ".join(by_label[l].get("context", "") for l in out.get("evidence", []) if l in by_label)
+    allowed_q = _values(question)
+    issues = []
+    for i, snt in enumerate(out.get("sentences", [])):
+        text = snt["text"]
+        if _CALC.search(text):
+            continue                          # 계산식을 밝힌 문장은 결과값이 원문에 없을 수 있음
+        src = " ".join(by_label[l].get("context", "") for l in snt.get("evidence", []) if l in by_label)
+        src_vals = _values(src) | _values(all_used)        # 문장 근거 + 같은 답변이 고른 근거 전체
+        for v in _values(text):
+            if v in allowed_q or v <= 1 or v in src_vals:
+                continue
+            issues.append((i, text, v))
+    return issues
 
 
 _YESNO_HEAD = re.compile(r"^\s*(네|예|아니요|아니오)\s*[,.]\s*")
 
 
-def _finalize(out):
-    """앞머리 '네,/아니요,'는 모델이 따로 고른 conclusion으로 코드가 붙입니다 (본문과 모순 방지)."""
+_NEG_Q = re.compile(r"(?:^|\s)(?:안|못)(?:\s+\S|해|하면|되|돼|받|가도|써도)|않(?:아|나요|을까|는)|없(?:나요|을까|어요\?|죠)")
+
+
+def _finalize(out, question=""):
+    """앞머리 '네,/아니요,'는 모델이 따로 고른 conclusion으로 코드가 붙입니다 (본문과 모순 방지).
+    부정형 질문('못 받나요?')에는 네/아니요가 뜻을 헷갈리게 하므로 붙이지 않습니다."""
     text = _YESNO_HEAD.sub("", out["answer"]).strip()
     c = out.get("conclusion")
+    if question and _NEG_Q.search(question):
+        return text
     return f"{c}, {text}" if c in ("네", "아니요") else text
+
+
+def _verify_ctx(out, hits):
+    """검증용 근거: 답변 문장들이 고른 근거 전체 (출력용 citation의 개수 제한을 적용하지 않음)."""
+    by_label = {h["label"]: h for h in hits}
+    return [by_label[l] for l in out.get("evidence", []) if l in by_label and not DISTRICT.search(l)]
 
 
 def _pick(out, hits):
@@ -346,6 +585,7 @@ def answer(question, trace=None):
     import upstage
     if trace is None:
         trace = {}
+    t_start = _time.time()
     queries = rewrite_queries(question)
     trace["queries"] = queries
     top = retrieve(question, queries=queries)
@@ -355,38 +595,67 @@ def answer(question, trace=None):
         trace["stop"] = "min_score"
         return dict(UNKNOWN)
 
-    hits = expand_refs(expand_siblings(top))
+    hits = expand_links(expand_refs(expand_siblings(top)), question)
     trace["hits"] = [(h["label"], round(h["score"], 3), h["cos"] and round(h["cos"], 3)) for h in hits]
     user_msg = f"[근거]\n{_context(hits)}\n\n[질문]\n{question}"
-    out = _ask(SYSTEM, user_msg, hits)
+    out = _ask_consistent(SYSTEM, user_msg, hits, trace)
     trace["llm"] = out
     used = _pick(out, hits)
+    if out.get("basis") == "없음" or _claims_no_rule(out):
+        trace["stop"] = "no_basis"              # 질문의 핵심이 조례에 없음 → 주변 조항으로 설명하지 않고 확인 불가
+        return dict(UNKNOWN)
     if not out.get("found") or not used:
         trace["stop"] = "found_false" if not out.get("found") else "no_evidence"
         return dict(UNKNOWN)
 
-    # 검증 ②: 답이 고른 근거에 실제로 기반하는지 Groundedness Check
+    # 검증 ②-a (코드): 문장별 숫자가 그 문장의 근거 원문에 있는가
+    # 검증 ②-b (LLM): 답이 고른 근거에 기반하는가 (Groundedness)
     if config.USE_VERIFY:
-        verdict, reason = upstage.groundedness_detail(_context(used), _finalize(out), question)
-        trace["verdict"], trace["reason"] = verdict, reason
-        if verdict == "notGrounded" and config.USE_REPAIR:
-            # 한 번만 고쳐 쓰기: 지적된 이유를 주고 근거에 있는 내용만으로 다시 답하게 합니다
+        def check(o):
+            """코드 숫자 대조 → 통과하면 LLM 문장별 검증. (verdict, reason, 근거 없는 문장 번호)"""
+            ni = _number_issues(o, hits, question)
+            if ni:
+                return ("notGrounded", "다음 문장의 숫자가 근거 원문에 없다: " + "; ".join(
+                    f"'{t[:80]}'의 {v:g}" for _, t, v in ni), sorted({i for i, _, _ in ni}))
+            c = o.get("conclusion")
+            prefix = f"{c}, " if c in ("네", "아니요") and not _NEG_Q.search(question) else ""
+            return upstage.groundedness_sentences(_context(_verify_ctx(o, hits)),
+                                                  [_YESNO_HEAD.sub("", x["text"]) for x in o["sentences"]],
+                                                  question, prefix)
+
+        def drop(o, bad):
+            o["sentences"] = [x for i, x in enumerate(o["sentences"]) if i not in set(bad)]
+            _assemble(o)
+            trace["dropped_sentences"] = trace.get("dropped_sentences", 0) + len(bad)
+
+        verdict, reason, bad = check(out)
+        trace["verdict"], trace["reason"], trace["unsupported"] = verdict, reason, bad
+        if verdict == "notGrounded" and bad and 0 not in bad and len(bad) < len(out["sentences"]):
+            # 결론 문장(첫 문장)은 근거가 있음 → 근거 없는 문장만 코드가 지웁니다 (전체 재작성 없이)
+            drop(out, bad)
+            verdict = "grounded_after_drop"
+        elif verdict == "notGrounded" and config.USE_REPAIR and _time.time() - t_start < config.REPAIR_BUDGET_SEC:
+            # 결론 문장 자체가 문제 → 한 번만 고쳐 쓰기
             out = _ask(REPAIR_SYSTEM, f"{user_msg}\n\n[직전 답변]\n{out['answer']}\n\n[검증 지적]\n{reason}", hits)
             trace["repair"] = out
-            used = _pick(out, hits)
-            if not out.get("found") or not used:
+            if out.get("basis") == "없음" or _claims_no_rule(out) or not out.get("found") or not out["sentences"]:
                 trace["stop"] = "repair_found_false"
                 return dict(UNKNOWN)
-            verdict, reason = upstage.groundedness_detail(_context(used), _finalize(out), question)
-            trace["verdict2"], trace["reason2"] = verdict, reason
-        if verdict == "notGrounded":            # notSure는 통과시킵니다 (함정은 found=false 단계에서 거름)
+            verdict, reason, bad = check(out)
+            trace["verdict2"], trace["reason2"], trace["unsupported2"] = verdict, reason, bad
+            if verdict == "notGrounded" and bad and 0 not in bad and len(bad) < len(out["sentences"]):
+                drop(out, bad)
+                verdict = "grounded_after_drop"
+        used = _pick(out, hits)
+        if verdict == "notGrounded" or not used:   # notSure는 통과 (함정은 basis/found 단계에서 거름)
             trace["stop"] = "not_grounded"
             return dict(UNKNOWN)
 
+    trace["sentences"] = [{"text": x["text"], "evidence": x.get("evidence", [])} for x in out["sentences"]]
     trace["stop"] = "answered"
     citation = list(dict.fromkeys(h["label"] for h in used))   # 순서 유지, 중복 제거
     first = used[0]
-    return {"answer": _finalize(out), "citation": citation,
+    return {"answer": _finalize(out, question), "citation": citation,
             "source_url": first["source_url"], "effective_date": first["effective_date"]}
 
 

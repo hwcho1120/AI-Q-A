@@ -21,6 +21,29 @@ SUB_MIN_LEN = 400                                   # 이보다 긴 조·항만 
 ANNEX_CONTEXT_MAX = 6000                            # LLM에 넘길 별표 원문 최대 길이
 
 
+def table_rows(md):
+    """Markdown 표에서 '머리글 + 데이터 행' 문자열을 만듭니다. 머리글이 여러 줄이면 모두 붙입니다."""
+    rows, header, in_table, seen_sep = [], [], False, False
+    for line in md.splitlines():
+        s = line.strip()
+        if not s.startswith("|"):
+            in_table, header, seen_sep = False, [], False
+            continue
+        if not in_table:
+            in_table, header, seen_sep = True, [s], False
+            continue
+        if set(s.replace("|", "").strip()) <= set("-: "):
+            seen_sep = True
+            continue
+        cells = [c.strip() for c in s.strip("|").split("|")]
+        # 구분선 뒤에도 첫 칸이 머리글과 같은 줄(다중 머리글)은 머리글에 붙입니다
+        if seen_sep and header and cells and cells[0] == header[0].strip("|").split("|")[0].strip():
+            header.append(s)
+            continue
+        rows.append("\n".join(header + [s])[:900])
+    return rows
+
+
 def split_items(body):
     """본문을 [머리말, 1호(+목), 2호(+목), ...]로 나눕니다. 호가 없으면 [본문]."""
     parts, cur = [], []
@@ -81,6 +104,10 @@ def make_chunks(laws, unit):
                 t = f"{head}\n{body[i:i + 1800]}"
                 chunks.append({**meta, "label": label, "group": label, "text": t, "context": full,
                                "annex_source": src})
+            # 표 행 단위 보조 조각: 각 행에 머리글을 붙여 '1급지·노외·5분당' 같은 질문이 그 행에 바로 걸리게 합니다
+            for row in table_rows(body):
+                chunks.append({**meta, "label": label, "group": label, "text": f"{head}\n{row}",
+                               "context": full, "annex_source": src, "sub": True})
     for i, c in enumerate(chunks):
         c["id"] = i
     return chunks

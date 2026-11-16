@@ -152,6 +152,14 @@ def main():
     path = out / f"diag_{Path(a.questions).stem}_{datetime.now():%m%d_%H%M%S}.json"
     path.write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
     print("저장:", path)
+    import upstage
+    u = upstage.usage_snapshot()
+    tot = {k: sum(v[k] for v in u.values()) for k in ("calls", "prompt_tokens", "completion_tokens")}
+    print(f"사용량: 호출 {tot['calls']}회, 입력 {tot['prompt_tokens']:,} 토큰, 출력 {tot['completion_tokens']:,} 토큰 "
+          f"(문항당 {tot['calls'] / max(len(jobs), 1):.1f}회) {u}")
+    with open(out / "usage_log.jsonl", "a", encoding="utf-8") as f:
+        f.write(json.dumps({"time": datetime.now().isoformat(timespec="seconds"), "set": Path(a.questions).stem,
+                            "n_runs": len(jobs), "usage": u}, ensure_ascii=False) + "\n")
 
 
 if __name__ == "__main__":

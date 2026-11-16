@@ -3,6 +3,7 @@
 Solar는 OpenAI SDK와 호환됩니다. base_url만 https://api.upstage.ai/v1 로 바꾸면 됩니다.
 """
 import json
+import threading
 import time
 
 import requests
@@ -35,21 +36,59 @@ def _retry(fn, tries=4):
             raise
 
 
+# ---- 사용량 집계: 응답의 usage(토큰 수)를 모델별로 누적합니다. 크레딧 소모 추정용.
+_usage_lock = threading.Lock()
+USAGE = {}
+
+
+def _record(model, resp):
+    u = getattr(resp, "usage", None)
+    with _usage_lock:
+        d = USAGE.setdefault(model, {"calls": 0, "prompt_tokens": 0, "completion_tokens": 0})
+        d["calls"] += 1
+        if u is not None:
+            d["prompt_tokens"] += getattr(u, "prompt_tokens", 0) or 0
+            d["completion_tokens"] += getattr(u, "completion_tokens", 0) or 0
+    return resp
+
+
+def usage_snapshot():
+    with _usage_lock:
+        return json.loads(json.dumps(USAGE))
+
+
+def _create(**kw):
+    return _record(kw["model"], _retry(lambda: client().chat.completions.create(**kw)))
+
+
 def chat(messages, response_format=None, temperature=0.0, reasoning_effort=None):
     kw = dict(model=config.CHAT_MODEL, messages=messages, temperature=temperature)
     if response_format:
         kw["response_format"] = response_format
     if reasoning_effort:                      # solar-pro4: 생략하면 추론 OFF, "low" 이상이면 ON
         kw["reasoning_effort"] = reasoning_effort
-    resp = _retry(lambda: client().chat.completions.create(**kw))
-    return resp.choices[0].message.content
+    if not response_format:
+        resp = _create(**kw)
+        return resp.choices[0].message.content
+    # 구조화 출력: 응답이 비거나 JSON이 깨지면 한 번 더, 그래도 안 되면 추론 모드를 끄고 다시 시도합니다.
+    attempts = [kw, kw, {k: v for k, v in kw.items() if k != "reasoning_effort"}]
+    last = None
+    for a in attempts:
+        resp = _create(**a)
+        content = resp.choices[0].message.content
+        try:
+            json.loads(content or "")
+            return content
+        except (TypeError, ValueError) as e:
+            last = e
+    raise ValueError(f"구조화 출력 실패(3회): {last!r}")
 
 
 def embed(texts, model):
     out = []
     for i in range(0, len(texts), 50):        # 한 번에 너무 많이 보내지 않습니다
         batch = texts[i:i + 50]
-        resp = _retry(lambda: client().embeddings.create(model=model, input=batch))
+        resp = _record(model, _retry(lambda: client().embeddings.create(model=model, input=batch)))
         out.extend(d.embedding for d in resp.data)
     return out
 
@@ -107,6 +146,40 @@ def groundedness_detail(context, answer, question=""):
                response_format=_GROUND_SCHEMA)
     out = json.loads(raw)
     return out.get("verdict", "notSure"), out.get("reason", "")
+
+
+_GROUND_SENT_SCHEMA = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "groundedness_sent",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "properties": {
+                "verdict": {"type": "string", "enum": ["grounded", "notGrounded", "notSure"]},
+                "unsupported": {"type": "array", "items": {"type": "integer"}},
+                "reason": {"type": "string"},
+            },
+            "required": ["verdict", "unsupported", "reason"],
+            "additionalProperties": False,
+        },
+    },
+}
+
+
+def groundedness_sentences(context, sentences, question="", prefix=""):
+    """문장 번호를 붙여 검증하고, 근거 없는 문장 번호(0부터)를 함께 돌려줍니다: (verdict, reason, [idx...])
+
+    문장 단위로 알려 주면, 결론 문장이 멀쩡할 때 코드가 문제 문장만 지울 수 있습니다(전체 재작성 불필요).
+    """
+    numbered = "\n".join(f"[{i}] {(prefix if i == 1 else '') + t}" for i, t in enumerate(sentences, 1))
+    sys_msg = _GROUND_SYSTEM + "\nunsupported에는 근거에 없는 사실이 들어 있는 문장의 번호([n])를 모두 넣는다. 없으면 빈 배열."
+    raw = chat([{"role": "system", "content": sys_msg},
+                {"role": "user", "content": f"[근거]\n{context}\n\n[질문]\n{question}\n\n[답변 문장]\n{numbered}"}],
+               response_format=_GROUND_SENT_SCHEMA)
+    out = json.loads(raw)
+    bad = sorted({i - 1 for i in out.get("unsupported", []) if 1 <= i <= len(sentences)})
+    return out.get("verdict", "notSure"), out.get("reason", ""), bad
 
 
 def groundedness(context, answer):
