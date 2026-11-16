@@ -46,23 +46,9 @@ USE_PARSED_ANNEX = os.environ.get("USE_PARSED_ANNEX", "1") == "1"
 # 2-5 시연: 근거 검증 장치를 켤지
 USE_VERIFY = os.environ.get("USE_VERIFY", "1") == "1"
 
-TOP_K = 8
-W_EMBED = 0.7                 # 혼합 점수에서 임베딩 비중 (나머지는 키워드)
-USE_REWRITE = os.environ.get("USE_REWRITE", "1") == "1"   # 질문 재작성(쉬운 말 → 조문 용어)
-REWRITE_WEIGHT = 0.95         # 재작성 질문 점수에 곱하는 값 (원 질문을 약간 우대)
-SIBLING_FROM_TOP = 3          # 상위 몇 개 근거에 대해 같은 조의 다른 항을 덧붙일지
-MAX_CONTEXT = 14              # LLM에 넘기는 근거 최대 개수 (검색 top_k + 참조 조항 + 형제 항)
-MAX_CITATIONS = 3             # 인용 최대 개수 (여러 개 냈을 때 채점 규칙은 운영진 공지 확인)
-USE_REPAIR =os.environ.get("USE_REPAIR", "1") == "1"     # 검증 실패 시 한 번 고쳐 쓰기
+TOP_K = 6
 # 검색 점수가 이보다 낮으면 '확인 불가' 후보로 봅니다. TODO: 공개 예시로 직접 맞춰 보세요.
 MIN_SCORE = 0.25
 
 # 대회 제한은 문항당 90초. 여유를 두고 이 시간을 넘기면 '확인 불가'로 돌려줍니다.
 ANSWER_TIMEOUT_SEC = 75
-RRF_K = 10                    # 순위 합산(RRF) 상수: 작을수록 각 검색어의 상위권을 더 우대
-RRF_DEPTH = 60                # 검색어마다 몇 위까지 합산에 넣을지
-USE_HYDE = os.environ.get("USE_HYDE", "1") == "1"         # 가상 조문(HyDE)도 검색어로 사용
-LAW_FOCUS = os.environ.get("LAW_FOCUS", "1") == "1"       # 상위권 점수 합이 가장 큰 조례 하나에서만 근거 선택
-REF_MAX_PER = 2               # 참조 조항 확장 시 조 하나당 최대 항 수
-LAW_FOCUS_RATIO = 0.5         # 1등 조례 점수의 이 비율 이상인 조례는 함께 남김
-ANSWER_REASONING = os.environ.get("ANSWER_REASONING", "")   # 답변 단계 추론 모드: "" 끔 / "low" / "medium" / "high"

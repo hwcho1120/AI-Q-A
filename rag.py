@@ -4,11 +4,20 @@
   1. LLM은 근거 '번호'만 고릅니다. 조항 표기(citation)는 코드가 조각 라벨로 만듭니다.
   2. source_url · effective_date도 코드가 채웁니다. LLM이 링크나 날짜를 쓰게 두지 않습니다.
   3. 의심스러우면 '확인 불가'. 근거 없는 답은 맞아도 점수가 없고, 함정 문항에서는 감점입니다.
+
+고도화 내역:
+  - 질문 분석 및 법령 용어 확장 (solar-mini4 Query Rewrite)
+  - 라벨 단위 다양성 보장 + 동일 라벨 호(item) 병합
+  - 형제 항 확장 (Same-Article Sibling Expansion) + 별표 연결 + 2-Hop 연쇄 검색
+  - solar-pro4 (reasoning_effort="low") 기반 답변 및 예/아니오 품질 규칙 적용
+  - solar-decide 기반 Groundedness Check 검증
 """
 import json
 import math
 import re
-from collections import Counter
+import threading
+import time
+from collections import Counter, defaultdict
 
 import numpy as np
 
@@ -16,11 +25,22 @@ import config
 
 UNKNOWN = {"answer": "확인 불가", "citation": [], "source_url": "", "effective_date": ""}
 DISTRICT = re.compile(r"서울특별시\s*\S+구\s")      # 'OO구' 자치구 조례 인용 방지
+NAMED_LOCAL_GOV_PAT = re.compile(
+    r"(?:강남|서초|송파|마포|성동|영등포|종로|용산|광진|동대문|중랑|성북|강북|도봉|노원|은평|서대문|양천|강서|구로|금천|동작|관악|강동)구"
+    r"|(?:서울(?:특별시)?\s*|(?<=[\s,]))중구(?=[에의에서을를은는도과와,\s])"
+    r"|수원시|성남시|고양시|용인시|부산시|인천시|대구시|대전시|광주시"
+)
+EXT_HARD_TRAP_PAT = re.compile(
+    r"PC방|피시방|노래방|당구장|운전면허\s*벌점|면허\s*벌점|\b징역|징역형?|범칙금|형사\s*처벌|검찰|경찰(?:청|서|관|에)|법원(?:\s|을|에|의)"
+)
+ANNEX_REF = re.compile(r"(별표\s*\d+|별표)")
+COMBINE_KW = ("둘 이상", "중복", "하나만", "감면", "제외", "다만", "과태료", "면제", "별표", "적용하지")
 
 _cache = {}
+_cache_lock = threading.Lock()
 
 
-# ------------------------------------------------------------ 검색
+# ------------------------------------------------------------ 색인 로드 & BM25
 def _bigrams(text):
     t = re.sub(r"\s+", "", text)
     return [t[i:i + 2] for i in range(len(t) - 1)]
@@ -30,26 +50,33 @@ def _load():
     unit = config.CHUNK_UNIT
     if unit in _cache:
         return _cache[unit]
-    chunks = json.loads((config.DATA / f"chunks_{unit}.json").read_text(encoding="utf-8"))
-    vec_path = config.DATA / f"vectors_{unit}.npy"
-    vecs = np.load(vec_path) if vec_path.exists() else None
-    if vecs is not None:
-        vecs = vecs / np.linalg.norm(vecs, axis=1, keepdims=True)
-    # 키워드 검색용 (글자 2개 단위 BM25)
-    docs = [Counter(_bigrams(c["label"] + " " + c["text"])) for c in chunks]
-    df = Counter(g for d in docs for g in d)
-    avg = sum(sum(d.values()) for d in docs) / len(docs)
-    for c in chunks:                       # 예전 색인 파일과의 호환
-        c.setdefault("context", c["text"])
-        c.setdefault("group", c["label"])
-    _cache[unit] = (chunks, vecs, docs, df, avg)
-    # 같은 조에 속한 항들 (조 → [대표 조각...]): 형제 항 확장용
-    groups = {}
-    for c in chunks:
-        if not c.get("sub"):
-            groups.setdefault(c["group"], []).append(c)
-    _cache[unit + ":groups"] = groups
-    return _cache[unit]
+    with _cache_lock:
+        if unit in _cache:
+            return _cache[unit]
+        chunks = json.loads((config.DATA / f"chunks_{unit}.json").read_text(encoding="utf-8"))
+        vec_path = config.DATA / f"vectors_{unit}.npy"
+        vecs = np.load(vec_path) if vec_path.exists() else None
+        if vecs is not None:
+            vecs = vecs / np.linalg.norm(vecs, axis=1, keepdims=True)
+
+        search_texts = [c.get("search_text", c["label"] + " " + c["text"]) for c in chunks]
+        docs = [Counter(_bigrams(t)) for t in search_texts]
+        df = Counter(g for d in docs for g in d)
+        avg = sum(sum(d.values()) for d in docs) / max(len(docs), 1)
+
+        article_map = defaultdict(list)
+        annex_map = defaultdict(list)
+        label_map = defaultdict(list)
+        for idx, c in enumerate(chunks):
+            label_map[c["label"]].append(idx)
+            art = c.get("article")
+            if c.get("chunk_type") == "annex":
+                annex_map[(c["law"], art)].append(idx)
+            elif art:
+                article_map[(c["law"], art)].append(idx)
+
+        _cache[unit] = (chunks, vecs, docs, df, avg, article_map, annex_map, label_map)
+        return _cache[unit]
 
 
 def _bm25(query, docs, df, avg, k1=1.2, b=0.75):
@@ -58,6 +85,8 @@ def _bm25(query, docs, df, avg, k1=1.2, b=0.75):
     scores = np.zeros(n)
     for i, d in enumerate(docs):
         ln = sum(d.values())
+        if ln == 0:
+            continue
         s = 0.0
         for g in q:
             if g in d:
@@ -67,327 +96,423 @@ def _bm25(query, docs, df, avg, k1=1.2, b=0.75):
     return scores
 
 
-REWRITE_SYSTEM = """너는 서울특별시 조례 검색어 생성기다.
-시민의 일상 질문을 조례 조문에 실제로 쓰일 법률 용어로 바꾼 검색어를 2~3개 만든다.
-- 쉬운 말을 조문 용어로 바꾼다. 예) 돈을 내다 → 요금·사용료 부과, 할인 → 감면, 술 → 음주·금주구역, 나이 → 정의·연령
-- 둘 이상의 할인·감면을 함께 받는지 묻는 질문이면 '감면 사유가 둘 이상일 때 중복 감면' 검색어도 만든다.
-- 금지 행위 질문이면 그 위반에 대한 '과태료 부과' 검색어도 만든다.
-- 용어의 뜻·대상·범위를 묻는 질문이면 '정의' 검색어도 만든다.
-- 답을 쓰지 말고 검색어만 만든다. 각 검색어는 20자 안팎.
-pseudo_article: 이 질문에 답이 되는 조례 조문이 있다면 어떻게 쓰여 있을지, 조례 문체로 한두 문장을 지어 쓴다.
-  (예: "소유자등은 ~할 때에는 다음 각 호의 사항을 준수하여야 한다", "시장은 ~에 해당하는 경우 ~를 감면할 수 있다")
-  검색용일 뿐 답으로 쓰지 않으므로 금액·숫자는 넣지 않는다."""
-
-REWRITE_SCHEMA = {
+# ------------------------------------------------------------ 질문 분석 & 다중 쿼리 검색
+ANALYZE_SCHEMA = {
     "type": "json_schema",
     "json_schema": {
-        "name": "queries",
+        "name": "query_analysis",
         "strict": True,
         "schema": {
             "type": "object",
-            "properties": {"queries": {"type": "array", "items": {"type": "string"}},
-                           "pseudo_article": {"type": "string"}},
-            "required": ["queries", "pseudo_article"],
+            "properties": {
+                "legal_queries": {"type": "array", "items": {"type": "string"}},
+                "is_yes_no": {"type": "boolean"},
+                "external_law": {"type": "boolean"},
+                "is_composite": {"type": "boolean"},
+            },
+            "required": ["legal_queries", "is_yes_no", "external_law", "is_composite"],
+            "additionalProperties": False,
+        },
+    },
+}
+
+ANALYZE_SYS = """너는 서울특별시 조례 6종(주차장, 동물보호, 자전거, 도시공원, 청년, 금연) 검색 최적화기다.
+질문을 보고 다음 4가지를 JSON으로 출력하라.
+1. legal_queries: 일상어 질문을 대한민국 법령·자치법규(조례) 원문에 쓰이는 정식 행정·법률 용어로 바꾼 검색 쿼리 2~3개.
+   - 축약어나 구어체는 정식 법령 명칭·한자어(예: 차->자동차, 술->음주, 나이제한->연령 기준, 둘 다->둘 이상 중복)로 풀어서 포함하라.
+   - 질문의 직접적 대상뿐 아니라 그로 인한 처분·감면·단서·위임 규정 키워드도 함께 생성하라.
+2. is_yes_no: 질문의 주된 요구가 예/아니오로 판단하는 단일 질문("~인가요?", "~되나요?", "~할 수 있나요?", "~내야 하나요?")이면 true, 금액·나이·방법·절차 등을 묻거나 복합 질문("~인가요? 그렇다면 얼마인가요?")이면 false.
+3. external_law: 질문이 명백히 서울시 조례 6종 범위 밖(특정 OO구의 자체 요금·할인·지원, 타 시·도 조례, 징역·벌금·범칙금·면허벌점 등 형사처벌, 실내 PC방·노래방 등 국민건강증진법 전용 실내시설, 전기차 충전구역 일반차 정차 과태료)일 때만 true로 하라.
+   - ⚠️ 반드시 false: "서울시 금연구역 지정·과태료(지하철역 출입구 10m, 버스정류소, 택시승차대, 공원 등)", "서울시 구청/자치구 청사 부설주차장 감면", 또는 "대부업법·근로기준법·건축법·동물보호법 등을 배경으로 언급하며 서울시장·서울시의 조치/규정을 묻는 질문"은 반드시 false로 하라.
+4. is_composite: 질문이 둘 이상의 조건·예외·우선순위·의무·절차나 서로 다른 항목/조항을 동시에 구분하거나 결합해 답해야 하면 true. 단순히 말투가 길고 서론이 긴 1개 사실/요건 조회 질문은 반드시 false."""
+
+COMPOSITE_HINT_PAT = re.compile(
+    r"동시에|모두\s*(?:고려|적용|판단|충족)|각각|구분하여|우선(?:순위|적용)|중복\s*(?:적용|감면|할인)|둘\s*다|경우와\b|뿐만\s*아니라|함께\s*고려"
+)
+
+
+def _analyze_question(question, deadline=None):
+    if not config.UPSTAGE_API_KEY:
+        return {"legal_queries": [], "is_yes_no": False, "external_law": False, "is_composite": False}
+    try:
+        import upstage
+        raw = upstage.chat(
+            [{"role": "system", "content": ANALYZE_SYS},
+             {"role": "user", "content": question}],
+            response_format=ANALYZE_SCHEMA,
+            model="solar-mini4",
+            deadline=deadline,
+        )
+        return json.loads(raw)
+    except Exception:  # noqa: BLE001
+        return {"legal_queries": [], "is_yes_no": False, "external_law": False, "is_composite": False}
+
+
+def _score_queries(queries, chunks, vecs, docs, df, avg, deadline=None):
+    """원본 질문 + 확장 쿼리들의 혼합 점수 및 원본 질문 순수 코사인 점수를 계산합니다."""
+    kw_list = []
+    for q in queries:
+        kw = _bm25(q, docs, df, avg)
+        kw_list.append(kw / kw.max() if kw.max() > 0 else kw)
+
+    if vecs is not None and config.UPSTAGE_API_KEY:
+        import upstage
+        embs = upstage.embed(queries, config.EMBED_QUERY, deadline=deadline)
+        cos_list = []
+        for e in embs:
+            qv = np.array(e, dtype=np.float32)
+            cos_list.append(vecs @ (qv / np.linalg.norm(qv)))
+        raw_cos = cos_list[0]
+        per_q = [0.68 * c + 0.32 * k for c, k in zip(cos_list, kw_list)]
+    else:
+        raw_cos = None
+        per_q = kw_list
+
+    if len(per_q) == 1:
+        total = per_q[0]
+    else:
+        ext_max = np.max(np.vstack(per_q[1:]), axis=0)
+        total = 0.52 * per_q[0] + 0.48 * ext_max
+    return total, raw_cos
+
+
+def _pick_diverse_chunks(score, chunks, top_k, max_per_label=2):
+    """같은 label의 호(item)가 슬롯을 독점하지 않도록 다양성을 유지하며 상위 조각을 뽑습니다."""
+    order = np.argsort(score)[::-1]
+    picked = []
+    label_counts = Counter()
+    for idx in order:
+        i = int(idx)
+        lbl = chunks[i]["label"]
+        if label_counts[lbl] >= max_per_label:
+            continue
+        picked.append(i)
+        label_counts[lbl] += 1
+        if len(picked) >= top_k:
+            break
+    return picked
+
+
+def retrieve(question, top_k=config.TOP_K):
+    """질문 확장 + 혼합 검색 (라벨 다양성 적용). check.py --retrieval과 호환됩니다."""
+    chunks, vecs, docs, df, avg, _, _, _ = _load()
+    analysis = _analyze_question(question)
+    queries = [question] + [q for q in analysis.get("legal_queries", []) if q and q != question][:3]
+    score, raw_cos = _score_queries(queries, chunks, vecs, docs, df, avg)
+    # label 기준으로 top_k개의 서로 다른 조항/항이 포함되도록 선정
+    picked = _pick_diverse_chunks(score, chunks, top_k, max_per_label=1)
+    return [{**chunks[i], "score": float(score[i]),
+             "cos": float(raw_cos[i]) if raw_cos is not None else None} for i in picked]
+
+
+# ------------------------------------------------------------ 2단계 확장 & 병합
+FOLLOWUP_SCHEMA = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "followup_search",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "properties": {
+                "need_more": {"type": "boolean"},
+                "followup_queries": {"type": "array", "items": {"type": "string"}},
+            },
+            "required": ["need_more", "followup_queries"],
+            "additionalProperties": False,
+        },
+    },
+}
+
+FOLLOWUP_SYS = """너는 법령 RAG 2단계 검색 판단기다.
+[질문]과 1차로 찾은 [근거 요약]을 보고, 답을 완성하기 위해 연결된 후속 조문(예: 금주구역 지정에 따른 음주 과태료 조항, 인용된 별표, 예외/감면 조항, 절차 조항 등)을 추가로 검색해야 하는지 판단하라.
+- 이미 근거가 충분하거나, 6개 서울시 조례에 없는 내용(함정 질문)이면 need_more=false, followup_queries=[] 로 하라.
+- 1차 근거에 등장한 핵심 용어(예: 금주구역, 별표 등)와 질문의 결과(예: 과태료, 요금, 감면 중복 등)를 연결하는 검색 쿼리 1~2개를 생성하라."""
+
+
+def _followup_queries(question, top_hits, deadline=None):
+    if not config.UPSTAGE_API_KEY:
+        return []
+    summary = "\n".join(f"- {h['label']}: {h['text'][:240].replace(chr(10), ' ')}" for h in top_hits[:5])
+    try:
+        import upstage
+        raw = upstage.chat(
+            [{"role": "system", "content": FOLLOWUP_SYS},
+             {"role": "user", "content": f"[질문]\n{question}\n\n[근거 요약]\n{summary}"}],
+            response_format=FOLLOWUP_SCHEMA,
+            model="solar-mini4",
+            deadline=deadline,
+        )
+        res = json.loads(raw)
+        if res.get("need_more"):
+            return [q for q in res.get("followup_queries", []) if q][:2]
+    except Exception:  # noqa: BLE001
+        pass
+    return []
+
+
+def _expand_candidates(question, base_indices, base_score, chunks, vecs, docs, df, avg,
+                       article_map, annex_map, is_composite=False, deadline=None):
+    """1차 후보에 (1) 같은 조 형제 항, (2) 언급된 별표, (3) 2-hop 연쇄 검색 결과를 보강합니다."""
+    cand_order = list(base_indices)
+    cand_set = set(base_indices)
+    ordered_labels = list(dict.fromkeys(chunks[i]["label"] for i in base_indices))
+
+    def add_cand(idx):
+        if idx not in cand_set:
+            cand_set.add(idx)
+            cand_order.append(idx)
+
+    # 1) 본문에서 언급된 별표 연결 보강
+    for i in base_indices[:5]:
+        txt = chunks[i]["text"]
+        law_name = chunks[i]["law"]
+        for m in ANNEX_REF.findall(txt):
+            ax_lbl = re.sub(r"\s+", " ", m).strip()
+            if ax_lbl.startswith("별표") and len(ax_lbl) > 2 and " " not in ax_lbl:
+                ax_lbl = "별표 " + ax_lbl[2:]
+            ax_indices = annex_map.get((law_name, ax_lbl), [])
+            if ax_indices:
+                for idx in sorted(ax_indices, key=lambda idx: base_score[idx], reverse=True)[:2]:
+                    add_cand(idx)
+
+    # 2) 2-hop 연쇄 검색 (Multi-hop)
+    top_hits_for_hop = [chunks[i] for i in base_indices[:5]]
+    f_queries = _followup_queries(question, top_hits_for_hop, deadline=deadline)
+    if f_queries:
+        f_score, _ = _score_queries(f_queries, chunks, vecs, docs, df, avg, deadline=deadline)
+        for i in _pick_diverse_chunks(f_score, chunks, top_k=5, max_per_label=1):
+            add_cand(i)
+
+    # 3) 같은 조(article) 내 핵심 형제 항 보강 (복합 질문이면 넓게, 단일 질문이면 핵심만)
+    art_limit = 3 if is_composite else 2
+    sib_limit = 3 if is_composite else 2
+    top_articles = list(dict.fromkeys((chunks[i]["law"], chunks[i].get("article")) for i in base_indices[:6]))
+    for law_name, art in top_articles[:art_limit]:
+        if not art or str(art).startswith("별표"):
+            continue
+        sibs = article_map.get((law_name, art), [])
+        distinct_paras = {chunks[s].get("para_no") for s in sibs}
+        added = 0
+        for s in sibs:
+            if s in cand_set:
+                continue
+            if chunks[s]["label"] in ordered_labels:
+                continue
+            txt = chunks[s]["text"]
+            if is_composite or len(distinct_paras) <= 4 or any(kw in txt for kw in COMBINE_KW):
+                add_cand(s)
+                added += 1
+                if added >= sib_limit:
+                    break
+
+    return cand_order
+
+
+def _merge_by_label(indices, chunks, label_map=None, max_labels=12):
+    """동일 label을 가진 조각을 하나로 묶어 컨텍스트를 구성합니다.
+    본문 조항이 호(item) 단위로 분할된 경우, 라벨이 선정되면 해당 항의 전체 호를 복원해 누락을 방지합니다."""
+    grouped = defaultdict(list)
+    label_order = []
+    for idx in indices:
+        lbl = chunks[idx]["label"]
+        if lbl not in grouped:
+            if len(label_order) >= max_labels:
+                continue
+            label_order.append(lbl)
+        grouped[lbl].append(chunks[idx])
+
+    merged_hits = []
+    for lbl in label_order:
+        items = grouped[lbl]
+        first = items[0]
+        if label_map and first.get("chunk_type") == "item":
+            all_items = [chunks[i] for i in label_map.get(lbl, [])]
+            if sum(len(x["text"]) for x in all_items) <= 12000:
+                items = all_items
+        items = sorted(items, key=lambda c: c["id"])
+        if len(items) == 1:
+            combined_text = items[0]["text"]
+        else:
+            # 서두/헤더 중복 줄이기
+            parts = [items[0]["text"]]
+            for nxt in items[1:]:
+                t = nxt["text"]
+                if t.startswith("["):
+                    lines = t.splitlines()
+                    # 첫 줄([조례 제O조...])과 직전 조각과 겹치는 서두 문장 제거
+                    body_lines = [ln for ln in lines[1:] if ln not in parts[0]]
+                    parts.append("\n".join(body_lines) if body_lines else t)
+                else:
+                    parts.append(t)
+            combined_text = "\n".join(p for p in parts if p).strip()
+        merged_hits.append({
+            "label": lbl,
+            "text": combined_text,
+            "source_url": first["source_url"],
+            "effective_date": first["effective_date"],
+        })
+    return merged_hits
+
+
+# ------------------------------------------------------------ 답변 생성 & 검증
+SYSTEM = """너는 서울특별시 조례 질의응답 도우미다.
+규칙:
+- 반드시 아래 [근거]에 적힌 내용만으로 답한다. 근거에 없는 내용은 절대 추측하거나 지어내지 않는다.
+- 답은 일반 시민이 이해할 수 있는 쉬운 말로 1~3문장으로 간결하게 쓴다. 금액·비율·나이·시간 같은 숫자와 단서 조항("다만, ~", 예외 규정)은 빠뜨리지 말고 정확히 쓴다.
+- 요금·감면·가산·비율 계산 시 '최초 N시간 이내 입출차 확인', '이상/초과/이하/미만', '중복 적용 불가' 등 전제 조건을 엄격히 대입한다. (예: 최초 2시간 이내 요건인 경우, 3시간 이용 시 요건 미충족이므로 2시간분만 임의 할인 계산 금지)
+- 질문에서 묻지 않은 인접 조항·부수 절차·별도 규정은 덧붙이지 않는다. 단, 질문이 여러 상황·의무·예외를 구분해 답하라고 요구하면 원칙 조항("하여야 한다/무료로 한다")과 예외·단서·준용("다만", "제O조를 준용한다", "우선한다")·별표 내 시설 분류(예: 운동시설 vs 강의실 등)를 정확히 대조해 빠뜨리지 말고 답한다.
+- 질문에 예/아니오로 답할 수 있는 조건 판단형 질문(예: ~인가요?, ~되나요?, ~내야 하나요?)인 경우, 반드시 "네," 또는 "아니요,"로 답변을 시작한다.
+- evidence_ids에는 답변 결론·수치·단서·별표 요금 산출에 실제로 사용한 [근거] 번호를 빠뜨리지 말고 모두 고른다(답변에 전혀 쓰지 않은 주변 조항만 제외할 것).
+- [함정 방어 1 - 근거 부재] 질문이 구체적 수치(거리·비율·횟수·금액·규격·시간·인원), 구체적 목록, 형사처벌(징역·벌금·벌점), 또는 위임된 세부 기준을 묻는데 [근거]에 포괄 위임만 있고 질문이 요구하는 답 자체가 없다면, "명시되어 있지 않다/확인할 수 없다/규정이 없다. 다만 ~"처럼 설명하지 말고 반드시 found=false, answer="확인 불가", evidence_ids=[]로 답하라.
+- [함정 방어 2 - 상위법/자치구/실내시설] 질문이 국가 상위법(도로교통법·국민건강증진법·동물보호법·친환경자동차법 등)상의 징역·벌금·범칙금·벌점·경찰/검찰/법원 절차·전기차 충전구역 정차 과태료, 실내 PC방·노래방·당구장 등 국민건강증진법상 실내 다중이용시설 흡연 과태료, 또는 특정 자치구(강남구·마포구·성동구 등 OO구)의 자체 요금·감면을 물으면 서울시 조례로 억지 연결하거나 "조례에는 ~가 없습니다"라고 단정하지 말고 반드시 found=false, answer="확인 불가", evidence_ids=[]로 답하라.
+결과는 JSON으로 낸다."""
+
+MISSING_RULE_PAT = re.compile(
+    r"^(?:[^.]{0,120})(?:이\s*|제시된\s*)?조례(?:에|에는|상)\s*[^.]{0,45}"
+    r"(?:명시되어\s*있지\s*않|정해져\s*있지\s*않|규정되어\s*있지\s*않|직접적인\s*규정(?:이|은)\s*없|근거\s*조항이\s*없|근거가\s*없)"
+    r"|(?:다만,\s*)?(?:거리\s*기준|감경\s*비율|분할\s*납부|형사처벌|징역|운전면허\s*벌점|벌점)[^.]{0,35}"
+    r"(?:명시되어\s*있지\s*않|정해져\s*있지\s*않|규정되어\s*있지\s*않|조례에(?:는)?\s*없)"
+    r"|제시된\s*근거만으로는\s*확인할\s*수\s*없|조례\s*근거만으로는\s*확인할\s*수\s*없|제공된\s*근거만으로는\s*확인할\s*수\s*없"
+    r"|구체적인\s*(?:감면\s*비율|과태료|금액|수수료|기준|절차|예외\s*규정)은\s*확인할\s*수\s*없|직접\s*부과하는\s*과태료\s*규정은\s*확인되지\s*않"
+    r"|조례가\s*아닌\s*규칙으로\s*정하도록\s*위임되어"
+)
+EXT_DENY_PAT = re.compile(r"(?:형사\s*처벌|징역형?|벌점|도로교통법|국민건강증진법|동물보호법)[^.]{0,30}(?:없습니다|나오지\s*않|부과되지\s*않|적용되지\s*않)")
+
+SCHEMA = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "law_answer",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "properties": {
+                "found": {"type": "boolean"},
+                "answer": {"type": "string"},
+                "evidence_ids": {"type": "array", "items": {"type": "integer"}},
+            },
+            "required": ["found", "answer", "evidence_ids"],
             "additionalProperties": False,
         },
     },
 }
 
 
-def rewrite_queries(question):
-    """질문 재작성: 쉬운 말 → 조문 용어 검색어 + 가상 조문(HyDE). 실패하면 빈 목록(원 질문만으로 검색)."""
-    if not (config.USE_REWRITE and config.UPSTAGE_API_KEY):
-        return []
-    import upstage
-    try:
-        raw = upstage.chat([{"role": "system", "content": REWRITE_SYSTEM},
-                            {"role": "user", "content": question}], response_format=REWRITE_SCHEMA)
-        out = json.loads(raw)
-        qs = [q.strip() for q in out.get("queries", []) if q.strip()][:3]
-        if config.USE_HYDE and out.get("pseudo_article", "").strip():
-            qs.append(out["pseudo_article"].strip()[:300])
-        return qs
-    except Exception:  # noqa: BLE001  재작성은 보조 단계라 실패해도 계속 진행
-        return []
-
-
-def _score(queries, chunks, vecs, docs, df, avg):
-    """질문 여러 개(원 질문 + 재작성)의 검색 결과를 순위 기반(RRF)으로 합칩니다.
-
-    점수 최댓값으로 합치면 한 검색어가 높은 점수를 몰아가 다른 검색어의 1~3위가 묻힙니다.
-    순위로 합치면 각 검색어의 상위 결과가 고르게 들어옵니다. 같은 라벨(호 단위 보조 조각)은 한 번만 셉니다.
-    """
-    use_vec = vecs is not None and config.UPSTAGE_API_KEY
-    if use_vec:
-        import upstage
-        qv = np.array(upstage.embed(queries, config.EMBED_QUERY), dtype=np.float32)
-        qv = qv / np.linalg.norm(qv, axis=1, keepdims=True)
-        cos_all = vecs @ qv.T                                   # (조각 수, 질문 수)
-    by_label, rep = {}, {}                                      # 라벨별 합산 점수, 대표 조각 번호
-    for j, q in enumerate(queries):
-        kw = _bm25(q, docs, df, avg)
-        kw = kw / kw.max() if kw.max() > 0 else kw
-        s = config.W_EMBED * cos_all[:, j] + (1 - config.W_EMBED) * kw if use_vec else kw
-        weight = 1.0 if j == 0 else config.REWRITE_WEIGHT       # 원 질문을 약간 우대
-        rank, seen = 0, set()
-        for i in np.argsort(s)[::-1][:config.RRF_DEPTH]:
-            lab = chunks[i]["label"]
-            if lab in seen:
-                continue
-            seen.add(lab)
-            by_label[lab] = by_label.get(lab, 0.0) + weight / (config.RRF_K + rank)
-            rep.setdefault(lab, i)
-            rank += 1
-    fused = np.zeros(len(chunks))
-    for lab, sc in by_label.items():
-        fused[rep[lab]] = sc
-    best_cos = cos_all[:, 0] if use_vec else None               # 확인 불가 기준선은 원 질문 기준
-    return fused, best_cos
-
-
-def retrieve(question, top_k=config.TOP_K, queries=None):
-    """임베딩(의미) + 키워드(용어) 혼합 검색 + 질문 재작성. 같은 라벨은 하나로 합칩니다."""
-    chunks, vecs, docs, df, avg = _load()
-    if queries is None:
-        queries = rewrite_queries(question)
-    score, cos = _score([question] + list(queries), chunks, vecs, docs, df, avg)
-    ranked, seen = [], set()
-    for i in np.argsort(score)[::-1]:
-        if score[i] <= 0:
-            break
-        c = chunks[i]
-        if c["label"] in seen:
-            continue
-        seen.add(c["label"])
-        ranked.append({**c, "score": float(score[i]),
-                       "cos": float(cos[i]) if cos is not None else None})
-    if config.LAW_FOCUS and ranked:
-        # 조례 집중: 상위권 점수 합이 1등 조례의 LAW_FOCUS_RATIO 이상인 조례만 남깁니다.
-        # (관련 없는 조례 조항이 섞여 혼동되는 것을 막되, '맹견+어린이공원'처럼 두 조례가 다 그럴듯하면 둘 다 남김)
-        votes = {}
-        for h in ranked[:top_k * 2]:
-            votes[h["law"]] = votes.get(h["law"], 0.0) + h["score"]
-        top = max(votes.values())
-        keep = {law for law, v in votes.items() if v >= top * config.LAW_FOCUS_RATIO}
-        ranked = [h for h in ranked if h["law"] in keep]
-    return ranked[:top_k]
-
-
-def expand_siblings(hits, max_total=None):
-    """상위 근거와 같은 조에 속한 다른 항도 근거 후보로 덧붙입니다.
-
-    예) 제7조 제1항(감면 사유)이 걸리면 제7조 제3항(중복 감면 금지)도 함께 보이게.
-    """
-    max_total = max_total or config.MAX_CONTEXT
-    groups = _cache.get(config.CHUNK_UNIT + ":groups", {})
-    out = list(hits)
-    seen = {h["label"] for h in hits}
-    for h in hits[:config.SIBLING_FROM_TOP]:
-        for s in groups.get(h["group"], []):
-            if len(out) >= max_total:
-                return out
-            if s["label"] not in seen:
-                seen.add(s["label"])
-                out.append({**s, "score": 0.0, "cos": None, "sibling_of": h["label"]})
-    return out
-
-
-# 조문 안의 같은 조례 참조: "제5조제4항", "제5조 제1항", "제1항"(같은 조 안). 「법」·법·영·규칙 조문은 제외
-_REF = re.compile(r"(제\d+조(?:의\d+)?)?\s?제(\d+)항|(제\d+조(?:의\d+)?)(?![의\d])")
-_EXTERNAL = re.compile(r"(」|법|영|규칙|시행령|시행규칙)$")   # 바로 앞이 다른 법령이면 제외
-
-
-def _refs(chunk):
-    """조각 본문이 가리키는 같은 조례의 조·항 라벨 후보를 돌려줍니다."""
-    body = chunk.get("context", chunk["text"]).split("\n", 1)[-1]
-    group = chunk.get("group", "")
-    law = chunk.get("law", "")
-    out = []
-    prev_end, prev_external = -100, False
-    for m in _REF.finditer(body):
-        before = body[max(0, m.start() - 8):m.start()].rstrip()
-        gap = body[prev_end:m.start()].strip() if m.start() - prev_end < 8 else None
-        # 바로 앞이 다른 법령이거나, 다른 법령 조문 목록에 '및·,·또는'으로 이어진 참조면 제외
-        external = bool(_EXTERNAL.search(before)) or (prev_external and gap in ("및", ",", "ㆍ", "또는", ""))
-        prev_end, prev_external = m.end(), external
-        if external:
-            continue
-        art, para, art_only = m.groups()
-        if para:
-            base = f"{law} {art}" if art else group      # "제1항"만 있으면 같은 조
-            out.append(f"{base} 제{para}항")
-        elif art_only:
-            out.append(f"{law} {art_only}")               # 조 전체 (항 없는 조이거나 조 단위 참조)
-    return out
-
-
-def expand_refs(hits, max_total=None, hops=2):
-    """근거 조문이 '제○조제○항에 따라'처럼 가리키는 같은 조례 조항을 덧붙입니다.
-
-    예) 과태료 조항(제10조 제1항: '제5조제4항을 위반하여') → 제5조 제4항 → 제5조 제1항(금연구역 목록)
-    질문의 대상이 실제로 적용 범위에 드는지 모델이 확인할 수 있게 하기 위함입니다.
-    """
-    max_total = max_total or config.MAX_CONTEXT
-    groups = _cache.get(config.CHUNK_UNIT + ":groups", {})
-    by_label = {c["label"]: c for g in groups.values() for c in g}
-    out = list(hits)
-    seen = {h["label"] for h in hits}
-    frontier = hits[:config.SIBLING_FROM_TOP]
-    for _ in range(hops):
-        nxt = []
-        for h in frontier:
-            for ref in _refs(h):
-                cands = [by_label[ref]] if ref in by_label else groups.get(ref, [])
-                for c in cands[:config.REF_MAX_PER]:          # 조 전체 참조는 앞 항 몇 개만
-                    if len(out) >= max_total:
-                        return out
-                    if c["label"] not in seen:
-                        seen.add(c["label"])
-                        item = {**c, "score": 0.0, "cos": None, "ref_of": h["label"]}
-                        out.append(item)
-                        nxt.append(item)
-        frontier = nxt
-    return out
-
-
-# ------------------------------------------------------------ 답변
-SYSTEM = """너는 서울특별시 조례 질의응답 도우미다.
-규칙:
-- 반드시 아래 [근거]에 적힌 내용만으로 답한다. 근거에 없는 내용은 추측하거나 덧붙이지 않는다.
-- conclusion 필드: 질문이 예·아니요로 답할 질문("~할 수 있나요/되나요/받을 수 있나요/내야 하나요")이면
-  질문이 묻는 그대로에 대한 답을 고른다. 예) "둘 다 받을 수 있나요?"→받을 수 없으면 "아니요", "돈을 내야 하나요?"→원칙적으로 무료면 "아니요".
-  "얼마/몇 살/어떻게 되나요"처럼 값·결과를 묻는 질문이면 "해당없음".
-- answer는 "네"나 "아니요"로 시작하지 말고, 첫 문장에 결론(값·결과·가능 여부)을 바로 쓴다. (앞머리 "네,/아니요,"는 시스템이 붙인다)
-- 이어서 결론을 뒷받침하는 조건·숫자(금액·비율·나이)와 '다만' 같은 단서·예외를 쓴다. 질문과 관계없는 절차·위임·이의제기 설명은 쓰지 않는다.
-- 일반 시민이 이해할 수 있는 쉬운 말로 2~4문장. 숫자는 근거에 적힌 값 그대로 쓴다.
-- '다만', 괄호( ) 안의 단서는 원칙에 붙는 조건이다. 단서가 적용 범위를 넓히는지('~도 포함한다', '~를 포함') 좁히는지
-  ('~는 제외한다', '~에 한정한다', '그러하지 아니하다') 정확히 읽고, 결론을 원칙과 단서를 함께 적용한 결과로 쓴다.
-  예) "A 소지자는 면제(다만, B 시설은 C 소지자를 포함)" → B 시설에서도 A 소지자는 면제이고, C 소지자도 추가로 면제.
-- 감면·혜택이 둘 이상 겹치는 질문이면, 근거에 중복 적용을 정한 조항이 있는지 먼저 확인하고 그 조항에 따라 답한다.
-- 다른 조례의 조항을 끌어와 섞지 않는다. 질문이 묻는 조례의 근거만 쓴다.
-- evidence에는 답의 내용이 실제로 적힌 근거의 조항 이름(<근거 조항="..."> 값)을 고른다. 결론을 직접 정한 근거를 맨 앞에 두고, 결론에 꼭 필요한 조항만 1~3개 넣는다. 부수 설명용 조항은 넣지 않는다.
-- 질문의 장소·대상·상황에 어떤 규정(과태료·감면·금지 등)이 적용된다고 답하려면, 그 장소·대상이 근거 조항의 적용 범위
-  (지정 대상 목록, 감면 대상 목록 등)에 실제로 적혀 있어야 한다. 적혀 있지 않으면 적용된다고 추측하지 말고 found를 false로 한다.
-- 근거로 질문에 답할 수 없으면(질문한 규정·금액이 근거에 없으면) found를 false로 한다.
-- 자치구(OO구) 조례나 규칙은 근거로 쓰지 않는다.
-결과는 JSON으로 낸다."""
-
-REPAIR_SYSTEM = SYSTEM + """
-
-[추가 지시] 직전 답변이 검증에서 '근거에 없는 내용이 있다'고 지적됐다. 검증은 직전 답변이 evidence로 고른 근거만 보고 이뤄졌다.
-- 근거를 잘못 골랐을 수 있으니, 전체 [근거]에서 답의 내용이 실제로 적힌 조항을 다시 확인해 고른다.
-- 지적된 문장은 고쳐 쓰지 말고 삭제한다. 새로운 주장(예: '~는 적용되지 않는다')을 덧붙이지 않는다.
-- 그래도 질문에 답할 수 없으면 found를 false로 한다."""
-
-def _schema(hits):
-    """응답 스키마. evidence는 이번에 보여 준 근거의 조항 이름 중에서만 고를 수 있습니다(enum).
-
-    번호로 고르게 하면 하나씩 밀려 고르는 실수가 반복돼서, 조항 이름 자체를 선택지로 줍니다.
-    목록 밖의 조항은 스키마가 막으므로 지어낸 조항이 나올 수 없습니다.
-    """
-    labels = list(dict.fromkeys(h["label"] for h in hits)) or ["(없음)"]
-    return {
-        "type": "json_schema",
-        "json_schema": {
-            "name": "law_answer",
-            "strict": True,
-            "schema": {
-                "type": "object",
-                "properties": {
-                    "found": {"type": "boolean"},
-                    "conclusion": {"type": "string", "enum": ["네", "아니요", "해당없음"]},
-                    "answer": {"type": "string"},
-                    "evidence": {"type": "array", "items": {"type": "string", "enum": labels}},
-                },
-                "required": ["found", "conclusion", "answer", "evidence"],
-                "additionalProperties": False,
-            },
-        },
-    }
-
-
 def _context(hits):
-    """근거마다 경계를 분명히 표시합니다."""
-    return "\n\n".join(f'<근거 조항="{h["label"]}">\n{h.get("context", h["text"])}\n</근거>' for h in hits)
-
-
-def _ask(system, user, hits):
-    import upstage
-    out = json.loads(upstage.chat([{"role": "system", "content": system},
-                                   {"role": "user", "content": user}], response_format=_schema(hits),
-                                  reasoning_effort=config.ANSWER_REASONING or None))
-    return out
-
-
-_YESNO_HEAD = re.compile(r"^\s*(네|예|아니요|아니오)\s*[,.]\s*")
-
-
-def _finalize(out):
-    """앞머리 '네,/아니요,'는 모델이 따로 고른 conclusion으로 코드가 붙입니다 (본문과 모순 방지)."""
-    text = _YESNO_HEAD.sub("", out["answer"]).strip()
-    c = out.get("conclusion")
-    return f"{c}, {text}" if c in ("네", "아니요") else text
-
-
-def _pick(out, hits):
-    by_label = {h["label"]: h for h in hits}
-    used = [by_label[lab] for lab in out.get("evidence", []) if lab in by_label]
-    used = [h for h in used if not DISTRICT.search(h["label"])]
-    if used:
-        # 첫 근거(결론 근거)와 같은 조례만 인용합니다. 다른 조례 조항이 섞이는 것을 막고 인용 수를 제한합니다.
-        law = used[0]["law"]
-        used = [h for h in used if h["law"] == law]
-        used = list({h["label"]: h for h in used}.values())[:config.MAX_CITATIONS]
-    return used
+    return "\n\n".join(f"[근거 {i}] {h['label']}\n{h['text']}" for i, h in enumerate(hits, 1))
 
 
 def answer(question, trace=None):
-    """trace에 dict를 넘기면 단계별 진단 정보를 채웁니다 (어디서 '확인 불가'가 났는지 분석용)."""
     import upstage
     if trace is None:
         trace = {}
-    queries = rewrite_queries(question)
-    trace["queries"] = queries
-    top = retrieve(question, queries=queries)
-
-    # 검증 ①: 검색 단계에서 이미 관련 조문이 없어 보이면 바로 '확인 불가'
-    if config.USE_VERIFY and top and top[0]["cos"] is not None and top[0]["cos"] < config.MIN_SCORE:
-        trace["stop"] = "min_score"
-        return dict(UNKNOWN)
-
-    hits = expand_refs(expand_siblings(top))
-    trace["hits"] = [(h["label"], round(h["score"], 3), h["cos"] and round(h["cos"], 3)) for h in hits]
-    user_msg = f"[근거]\n{_context(hits)}\n\n[질문]\n{question}"
-    out = _ask(SYSTEM, user_msg, hits)
-    trace["llm"] = out
-    used = _pick(out, hits)
-    if not out.get("found") or not used:
-        trace["stop"] = "found_false" if not out.get("found") else "no_evidence"
-        return dict(UNKNOWN)
-
-    # 검증 ②: 답이 고른 근거에 실제로 기반하는지 Groundedness Check
-    if config.USE_VERIFY:
-        verdict, reason = upstage.groundedness_detail(_context(used), _finalize(out), question)
-        trace["verdict"], trace["reason"] = verdict, reason
-        if verdict == "notGrounded" and config.USE_REPAIR:
-            # 한 번만 고쳐 쓰기: 지적된 이유를 주고 근거에 있는 내용만으로 다시 답하게 합니다
-            out = _ask(REPAIR_SYSTEM, f"{user_msg}\n\n[직전 답변]\n{out['answer']}\n\n[검증 지적]\n{reason}", hits)
-            trace["repair"] = out
-            used = _pick(out, hits)
-            if not out.get("found") or not used:
-                trace["stop"] = "repair_found_false"
-                return dict(UNKNOWN)
-            verdict, reason = upstage.groundedness_detail(_context(used), _finalize(out), question)
-            trace["verdict2"], trace["reason2"] = verdict, reason
-        if verdict == "notGrounded":            # notSure는 통과시킵니다 (함정은 found=false 단계에서 거름)
-            trace["stop"] = "not_grounded"
+    deadline = time.time() + max(getattr(config, "ANSWER_TIMEOUT_SEC", 75) - 5, 30)
+    try:
+        chunks, vecs, docs, df, avg, article_map, annex_map, label_map = _load()
+        # 자치구/타기관/상위법 함정 질문 방어 (확실한 패턴은 즉시 차단, 모호한 경우는 유사도 함께 확인)
+        if config.USE_VERIFY and (NAMED_LOCAL_GOV_PAT.search(question) or EXT_HARD_TRAP_PAT.search(question)):
+            trace["stop"] = "min_score"
             return dict(UNKNOWN)
 
-    trace["stop"] = "answered"
-    citation = list(dict.fromkeys(h["label"] for h in used))   # 순서 유지, 중복 제거
-    first = used[0]
-    return {"answer": _finalize(out), "citation": citation,
-            "source_url": first["source_url"], "effective_date": first["effective_date"]}
+        analysis = _analyze_question(question, deadline=deadline)
+
+        is_composite = bool(
+            analysis.get("is_composite")
+            or COMPOSITE_HINT_PAT.search(question)
+        )
+
+        queries = [question] + [q for q in analysis.get("legal_queries", []) if q and q != question][:3]
+        trace["queries"] = queries
+        base_score, raw_cos = _score_queries(queries, chunks, vecs, docs, df, avg, deadline=deadline)
+
+        # 검증 ①: 원본 질문의 최고 코사인 유사도가 기준선 미만이거나, 외부법령 판정 + 낮은 조례 유사도면 '확인 불가'
+        if config.USE_VERIFY and raw_cos is not None:
+            max_cos = float(raw_cos.max())
+            if max_cos < config.MIN_SCORE or (analysis.get("external_law") and max_cos < 0.42):
+                trace["stop"] = "min_score"
+                return dict(UNKNOWN)
+
+        # 1차 다양성 후보 선정 (상위 10개 청크)
+        base_indices = _pick_diverse_chunks(base_score, chunks, top_k=10, max_per_label=2)
+
+        # 2단계 확장: 형제 항 + 별표 연결 + 2-hop 연쇄 검색 (복합 질문은 더 넓게)
+        expanded_indices = _expand_candidates(
+            question, base_indices, base_score, chunks, vecs, docs, df, avg,
+            article_map, annex_map, is_composite=is_composite, deadline=deadline
+        )
+        hits = _merge_by_label(
+            expanded_indices, chunks, label_map=label_map,
+            max_labels=15 if is_composite else 12
+        )
+        lbl_best = {}
+        for idx in expanded_indices:
+            lbl = chunks[idx]["label"]
+            s = float(base_score[idx])
+            if s > lbl_best.get(lbl, -1.0):
+                lbl_best[lbl] = s
+        trace["hits"] = [(h["label"], round(lbl_best.get(h["label"], 0.0), 3)) for h in hits]
+
+        if analysis.get("is_yes_no"):
+            yes_no_hint = "\n(참고: 이 질문은 예/아니오 판단형입니다. 답을 찾을 수 있다면 첫 단어를 질문에 맞춰 '네,' 또는 '아니요,'로 시작하세요.)"
+        else:
+            yes_no_hint = "\n(참고: 이 질문은 정보 조회/복합 질문이므로 문장을 '네,' 또는 '아니요,'로 시작하지 말고 바로 핵심 사실부터 자연스럽게 답하세요.)"
+        if is_composite:
+            yes_no_hint += " (복합 질문이므로 원칙·예외·준용·우선순위와 각각의 직접 근거 번호를 빠뜨리지 마세요.)"
+
+        user_msg = f"[근거]\n{_context(hits)}\n\n[질문]\n{question}{yes_no_hint}"
+        out = None
+        for _ in range(2):
+            if time.time() >= deadline:
+                trace["stop"] = "error"
+                return dict(UNKNOWN)
+            raw = upstage.chat(
+                [{"role": "system", "content": SYSTEM}, {"role": "user", "content": user_msg}],
+                response_format=SCHEMA,
+                reasoning_effort="minimal",
+                deadline=deadline,
+            )
+            try:
+                out = json.loads(raw)
+                break
+            except json.JSONDecodeError:
+                continue
+        if not out:
+            trace["stop"] = "error"
+            return dict(UNKNOWN)
+        trace["llm"] = out
+
+        used = [hits[i - 1] for i in out.get("evidence_ids", []) if 1 <= i <= len(hits)]
+        used = [h for h in used if not DISTRICT.search(h["label"])]
+        if not out.get("found") or not used:
+            trace["stop"] = "found_false" if not out.get("found") else "no_evidence"
+            return dict(UNKNOWN)
+        ans_txt = out.get("answer", "")
+        if config.USE_VERIFY:
+            if EXT_DENY_PAT.search(ans_txt):
+                trace["stop"] = "found_false"
+                return dict(UNKNOWN)
+            if not ans_txt.lstrip().startswith(("네,", "아니요,")) and MISSING_RULE_PAT.search(ans_txt):
+                trace["stop"] = "found_false"
+                return dict(UNKNOWN)
+
+        # 검증 ②: 답이 고른 근거에 실제로 기반하는지 solar-decide Groundedness Check
+        if config.USE_VERIFY and time.time() + 4 < deadline:
+            try:
+                verdict = upstage.groundedness(_context(used), ans_txt, deadline=deadline)
+            except Exception:  # noqa: BLE001  일시적 검증 API 오류가 유효한 답변을 폐기하지 않도록
+                verdict = "notSure"
+            trace["verdict"] = verdict
+            if verdict == "notGrounded":
+                trace["stop"] = "not_grounded"
+                return dict(UNKNOWN)
+
+        trace["stop"] = "answered"
+        citation = list(dict.fromkeys(h["label"] for h in used))   # 순서 유지, 중복 제거
+        first = used[0]
+        return {"answer": ans_txt, "citation": citation,
+                "source_url": first["source_url"], "effective_date": first["effective_date"]}
+    except Exception:  # noqa: BLE001
+        trace["stop"] = "error"
+        return dict(UNKNOWN)
 
 
 def answer_without_rag(question):

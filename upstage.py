@@ -3,6 +3,7 @@
 Solar는 OpenAI SDK와 호환됩니다. base_url만 https://api.upstage.ai/v1 로 바꾸면 됩니다.
 """
 import json
+import random
 import time
 
 import requests
@@ -19,37 +20,49 @@ def client():
             # SystemExit이 아니라 일반 예외로: 서버(app.py)가 잡아서 '확인 불가'로 응답할 수 있게
             raise RuntimeError("UPSTAGE_API_KEY가 없습니다. .env.example을 .env로 복사하고 키를 넣어 주세요.")
         from openai import OpenAI
-        _client = OpenAI(api_key=config.UPSTAGE_API_KEY, base_url=config.UPSTAGE_BASE_URL)
+        _client = OpenAI(
+            api_key=config.UPSTAGE_API_KEY,
+            base_url=config.UPSTAGE_BASE_URL,
+            timeout=45.0,
+            max_retries=0,
+        )
     return _client
 
 
-def _retry(fn, tries=4):
-    """429(too_many_requests)는 잠시 기다렸다 다시 부릅니다. 한도는 Organization 단위로 공유됩니다."""
+def _retry(fn, tries=3, deadline=None):
+    """429/일시적 서버·네트워크 오류 시 지수 백오프 + 지터로 재시도합니다 (시간 예산 내)."""
     for i in range(tries):
+        if deadline is not None and time.time() >= deadline:
+            raise TimeoutError("Request budget exceeded before retry")
         try:
             return fn()
         except Exception as e:  # noqa: BLE001
-            if "429" in str(e) and i < tries - 1:
-                time.sleep(2 ** i)
+            msg = str(e)
+            transient = any(code in msg for code in ("429", "500", "502", "503", "504", "timeout", "Timeout", "Connection"))
+            if transient and i < tries - 1:
+                sleep_s = min((1.2 ** i) + random.uniform(0.1, 0.5), 4.0)
+                if deadline is not None and time.time() + sleep_s >= deadline:
+                    raise
+                time.sleep(sleep_s)
                 continue
             raise
 
 
-def chat(messages, response_format=None, temperature=0.0, reasoning_effort=None):
-    kw = dict(model=config.CHAT_MODEL, messages=messages, temperature=temperature)
+def chat(messages, response_format=None, temperature=0.0, reasoning_effort=None, model=None, deadline=None):
+    kw = dict(model=model or config.CHAT_MODEL, messages=messages, temperature=temperature)
     if response_format:
         kw["response_format"] = response_format
     if reasoning_effort:                      # solar-pro4: 생략하면 추론 OFF, "low" 이상이면 ON
         kw["reasoning_effort"] = reasoning_effort
-    resp = _retry(lambda: client().chat.completions.create(**kw))
+    resp = _retry(lambda: client().chat.completions.create(**kw), deadline=deadline)
     return resp.choices[0].message.content
 
 
-def embed(texts, model):
+def embed(texts, model, deadline=None):
     out = []
     for i in range(0, len(texts), 50):        # 한 번에 너무 많이 보내지 않습니다
         batch = texts[i:i + 50]
-        resp = _retry(lambda: client().embeddings.create(model=model, input=batch))
+        resp = _retry(lambda b=batch: client().embeddings.create(model=model, input=b), deadline=deadline)
         out.extend(d.embedding for d in resp.data)
     return out
 
@@ -68,46 +81,34 @@ def document_parse(path):
     return content.get("markdown") or content.get("html") or content.get("text") or ""
 
 
-_GROUND_SYSTEM = """너는 답변 검증기다. [질문]에 대한 [답변]이 [근거]에 기반하는지 판정한다.
-- grounded: 답변의 핵심 사실(결론, 금액·비율·나이 같은 숫자, 적용 조건·예외)이 근거에 명시돼 있거나 근거로부터 바로 도출된다.
-- notGrounded: 핵심 사실 중 근거와 모순되거나 근거에 전혀 없는 것(지어낸 숫자·조건·결론)이 있다.
-- notSure: 판단하기 애매하다.
-- 답변의 결론(네/아니요, 가능/불가, 면제/부과)이 근거를 적용한 결과와 반대이면 notGrounded.
-  특히 '다만'·괄호 단서가 범위를 넓히는지(포함) 좁히는지(제외) 확인하고, 단서를 거꾸로 읽은 결론은 notGrounded.
-- 답변이 질문의 장소·대상에 어떤 규정이 적용된다고 말하는데, 그 장소·대상이 근거 조항의 적용 범위(지정 대상 목록 등)에 적혀 있지 않으면 notGrounded.
-다음은 근거에 없는 사실로 보지 않는다:
-- 질문에 나온 대상(장소·사람·상황)을 답변에서 그대로 언급하는 것. 예) 질문의 '어린이공원'에 근거의 '금주구역 지정 대상 공원' 규정을 적용
-- 쉬운 말로 바꿔 쓴 표현, 일반적인 안내 문구("현장에서 확인하세요")"""
-
-_GROUND_SCHEMA = {
-    "type": "json_schema",
-    "json_schema": {
-        "name": "groundedness",
-        "strict": True,
-        "schema": {
-            "type": "object",
-            "properties": {
-                "verdict": {"type": "string", "enum": ["grounded", "notGrounded", "notSure"]},
-                "reason": {"type": "string"},
+def groundedness(context, answer, deadline=None):
+    """답변이 근거(context)에 실제로 기반하는지 판정합니다: grounded / notGrounded / notSure"""
+    def _call():
+        resp = requests.post(
+            f"{config.UPSTAGE_BASE_URL}/systemone",
+            headers={"Authorization": f"Bearer {config.UPSTAGE_API_KEY}"},
+            json={
+                "model": "solar-decide",
+                "state": f"[근거]\n{context}\n\n[답변]\n{answer}",
+                "questions": {
+                    "verdict": {
+                        "type": "choice",
+                        "instructions": "Verify whether the factual claims, conditions, and numbers in [답변] are supported by [근거]. Paraphrasing legal phrasing into natural plain Korean is grounded as long as the core meaning and facts are accurate.",
+                        "criteria": {
+                            "grounded": "Core facts, conditions, and numbers match [근거], even if phrased in simpler Korean.",
+                            "notGrounded": "[답변] invents facts, rules, or numbers not present in [근거], or contradicts [근거].",
+                            "notSure": "Partially supported or ambiguous.",
+                        },
+                    }
+                },
             },
-            "required": ["verdict", "reason"],
-            "additionalProperties": False,
-        },
-    },
-}
+            timeout=15,
+        )
+        resp.raise_for_status()
+        verdict = resp.json()["answers"]["verdict"]
+        probs = verdict.get("probabilities", {})
+        if verdict.get("choice") == "notGrounded" and probs.get("notGrounded", 1.0) < 0.70:
+            return "notSure"
+        return verdict.get("choice", "notSure")
 
-
-def groundedness_detail(context, answer, question=""):
-    """(verdict, reason). verdict: grounded / notGrounded / notSure
-
-    전용 모델 groundedness-check가 서비스 종료되어(400), Solar에 구조화 출력으로 판정을 맡깁니다.
-    """
-    raw = chat([{"role": "system", "content": _GROUND_SYSTEM},
-                {"role": "user", "content": f"[근거]\n{context}\n\n[질문]\n{question}\n\n[답변]\n{answer}"}],
-               response_format=_GROUND_SCHEMA)
-    out = json.loads(raw)
-    return out.get("verdict", "notSure"), out.get("reason", "")
-
-
-def groundedness(context, answer):
-    return groundedness_detail(context, answer)[0]
+    return _retry(_call, tries=3, deadline=deadline)
