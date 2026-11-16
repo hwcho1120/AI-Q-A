@@ -146,6 +146,11 @@ def _score(queries, chunks, vecs, docs, df, avg):
     return fused, best_cos
 
 
+# 조례 이름의 핵심어 → 질문에서 그 조례 대상을 직접 가리키는 표현
+_LAW_KEYWORDS = {"도시공원": r"공원", "자전거": r"자전거", "청년": r"청년",
+                 "금연": r"금연|흡연|담배", "동물보호": r"동물|반려|맹견|유기견|길고양이"}
+
+
 def retrieve(question, top_k=config.TOP_K, queries=None):
     """임베딩(의미) + 키워드(용어) 혼합 검색 + 질문 재작성. 같은 라벨은 하나로 합칩니다."""
     chunks, vecs, docs, df, avg = _load()
@@ -170,6 +175,10 @@ def retrieve(question, top_k=config.TOP_K, queries=None):
             votes[h["law"]] = votes.get(h["law"], 0.0) + h["score"]
         top = max(votes.values())
         keep = {law for law, v in votes.items() if v >= top * config.LAW_FOCUS_RATIO}
+        # 질문이 조례의 대상을 직접 말하면(예: '공원' → 도시공원 조례) 점수와 상관없이 남깁니다.
+        # ('공원에 반려동물 공간' 질문이 동물보호 조례로만 쏠려 도시공원 조례가 빠지던 문제)
+        keep |= {law for law in votes if any(k in law and re.search(p, question)
+                                                 for k, p in _LAW_KEYWORDS.items())}
         ranked = [h for h in ranked if h["law"] in keep]
     return ranked[:top_k]
 
@@ -352,8 +361,7 @@ SYSTEM = """너는 서울특별시 조례 질의응답 도우미다.
   예) "A 소지자는 면제(다만, B 시설은 C 소지자를 포함)" → B 시설에서도 A 소지자는 면제이고, C 소지자도 추가로 면제.
 - 감면·혜택이 둘 이상 겹치는 질문이면, 근거에 중복 적용을 정한 조항이 있는지 먼저 확인하고 그 조항에 따라 답한다.
 - 다른 조례의 조항을 끌어와 섞지 않는다. 질문이 묻는 조례의 근거만 쓴다.
-- 결론 문장의 evidence에는 결론을 직접 정한 조항을 맨 앞에 둔다. 답 전체에서 쓰는 조항은 결론에 꼭 필요한 1~3개로 줄이고, 부수 설명용 조항은 쓰지 않는다.
-- 질문의 장소·대상·상황에 어떤 규정(과태료·감면·금지 등)이 적용된다고 답하려면, 그 장소·대상이 근거 조항의 적용 범위
+- 결론 문장의 evidence에는 결론을 직접 정한 조항을 맨 앞에 둔다. 답 전체에서 쓰는 조항은 결론에 꼭 필요한 1~3개로 줄이고, 부수 설명용 조항은 쓰지 않는다.- 질문의 장소·대상·상황에 어떤 규정(과태료·감면·금지 등)이 적용된다고 답하려면, 그 장소·대상이 근거 조항의 적용 범위
   (지정 대상 목록, 감면 대상 목록 등)에 실제로 적혀 있어야 한다. 적혀 있지 않으면 적용된다고 추측하지 말고 found를 false로 한다.
 - 근거로 질문에 답할 수 없으면(질문한 규정·금액이 근거에 없으면) found를 false로 한다.
 - 자치구(OO구) 조례나 규칙은 근거로 쓰지 않는다.
@@ -580,6 +588,23 @@ def _pick(out, hits):
     return used
 
 
+def _with_annex_parent(citation):
+    """별표를 인용했으면 그 별표를 정한 본문 조항(별표 제목의 '(제33조제1항 관련)')도 뒤에 덧붙입니다.
+    별표는 본문 조항이 위임한 표이므로 둘 다 근거입니다. 인용 개수 상한(MAX_CITATIONS) 안에서만 추가합니다."""
+    links, _ = _links()
+    out = list(citation)
+    for lab in citation:
+        if " 별표" not in lab:
+            continue
+        for parent in dict.fromkeys(links.get(lab, [])):
+            if len(out) >= config.MAX_CITATIONS:
+                return out
+            if " 별표" not in parent and parent not in out:
+                out.append(parent)
+                break
+    return out
+
+
 def answer(question, trace=None):
     """trace에 dict를 넘기면 단계별 진단 정보를 채웁니다 (어디서 '확인 불가'가 났는지 분석용)."""
     import upstage
@@ -654,6 +679,8 @@ def answer(question, trace=None):
     trace["sentences"] = [{"text": x["text"], "evidence": x.get("evidence", [])} for x in out["sentences"]]
     trace["stop"] = "answered"
     citation = list(dict.fromkeys(h["label"] for h in used))   # 순서 유지, 중복 제거
+    if config.CITE_ANNEX_PARENT:
+        citation = _with_annex_parent(citation)
     first = used[0]
     return {"answer": _finalize(out, question), "citation": citation,
             "source_url": first["source_url"], "effective_date": first["effective_date"]}
