@@ -8,6 +8,7 @@
 """
 import asyncio
 import logging
+import time
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -43,10 +44,30 @@ def health():
     return {"ok": True, "chunk_unit": config.CHUNK_UNIT, "verify": config.USE_VERIFY}
 
 
+def _answer_logged(question):
+    """답변 + 관리자 검토 기록. 기록은 실패해도 답변에 영향을 주지 않습니다 (review.log_qa는 예외를 삼킴)."""
+    trace, t0 = {}, time.time()
+    try:
+        result = rag.answer(question, trace)
+    except Exception as e:  # noqa: BLE001
+        _log_review("api", question, dict(rag.UNKNOWN), trace, time.time() - t0, repr(e))
+        raise
+    _log_review("api", question, result, trace, time.time() - t0)
+    return result
+
+
+def _log_review(*args):
+    try:
+        import review
+        review.log_qa(*args)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 @app.post("/ask")
 async def ask(req: Ask):
     try:
-        return await asyncio.wait_for(asyncio.to_thread(rag.answer, req.question),
+        return await asyncio.wait_for(asyncio.to_thread(_answer_logged, req.question),
                                       timeout=config.ANSWER_TIMEOUT_SEC)
     except Exception as e:  # noqa: BLE001  시간 초과·API 오류 모두 '확인 불가'로 응답
         log.warning("ask failed: %r", e)

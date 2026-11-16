@@ -66,6 +66,7 @@ th{background:var(--brand-soft)}
 </head>
 <body>
 <header>
+  <a href="/admin" style="float:right;color:#fff;font-size:13px;margin-top:4px">담당자 검토 화면 →</a>
   <h1>서울시 조례 Q&amp;A</h1>
   <p>주차장 · 동물보호 · 자전거 · 도시공원 · 청년 · 금연 조례 원문에서 근거를 찾아 답합니다. 근거가 없으면 답하지 않습니다.</p>
 </header>
@@ -76,7 +77,8 @@ th{background:var(--brand-soft)}
         <textarea id="q" placeholder="예) 장애인은 공영주차장 요금을 할인받을 수 있나요?"></textarea>
         <button class="primary" id="go">질문</button>
       </div>
-      <div class="opts"><label><input type="checkbox" id="cmp"> LLM 단독 답변과 비교 (시연용)</label></div>
+      <div class="opts"><label><input type="checkbox" id="cmp"> LLM 단독 답변과 비교 (시연용)</label>
+        &nbsp; <label><input type="checkbox" id="appr"> 담당자 승인을 거쳐 공개 (시연용)</label></div>
       <div class="chips" id="chips"></div>
     </div>
     <div id="out"></div>
@@ -111,7 +113,9 @@ async function ask() {
   $("#go").disabled = true;
   const cmp = $("#cmp").checked;
   $("#out").innerHTML = `<div class="card" style="margin-top:16px"><span class="spinner"></span>원문에서 근거를 찾는 중…</div>`;
-  const post = (url) => fetch(url, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({question:q})}).then(r => r.json());
+  stopPoll();
+  const post = (url) => fetch(url, {method:"POST", headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({question:q, require_approval:$("#appr").checked})}).then(r => r.json());
   try {
     const [d, l] = await Promise.all([post("/api/ask"), cmp ? post("/api/llm_only") : null]);
     render(d, l);
@@ -120,7 +124,38 @@ async function ask() {
   } finally { $("#go").disabled = false; }
 }
 
+let pollTimer = null;
+function stopPoll() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
+
+// 승인 대기(Deny): 답을 보여주지 않고 담당자 승인을 기다립니다. 승인·수정되면 자동으로 답이 나타납니다.
+function renderHeld(d, llm) {
+  $("#out").innerHTML = `
+  <div class="card" style="margin-top:16px">
+    <div class="label">답변</div>
+    <div class="answer"><span class="badge b-unk">담당자 확인 중</span>자동 검증에서 추가 확인이 필요한 답변이라, 담당자가 조례 원문과 대조한 뒤 공개합니다.</div>
+    <div class="meta"><span><span class="spinner"></span>승인 대기 (접수 #${d.review_id})</span><span>AI 처리 ${d.elapsed}초</span></div>
+    <div class="steps">
+      <div class="step ok">✓ ① 조문 검색</div><div class="step ok">✓ ② 근거 판단 (Solar)</div>
+      <div class="step stop">③ 근거 일치 검증<br>추가 확인 필요 → 담당자 승인 대기</div>
+      <div class="step">· ④ 담당자 승인</div>
+    </div>
+    <p class="muted" style="margin-top:10px">담당자 화면: <a href="/admin" target="_blank" rel="noopener">/admin</a></p>
+  </div>`;
+  pollTimer = setInterval(async () => {
+    let s; try { s = await fetch("/api/ticket/" + d.ticket).then(r => r.json()); } catch (e) { return; }
+    if (s.state === "pending") return;
+    stopPoll();
+    if (s.state === "rejected") {
+      $("#out").innerHTML = `<div class="card" style="margin-top:16px"><div class="label">답변</div>
+        <div class="answer"><span class="badge b-no">답변 보류</span>담당자 확인 결과, 이 질문은 조례 근거로 답변드리기 어렵습니다.${s.note ? "<br><span class='muted'>사유: " + esc(s.note) + "</span>" : ""}</div></div>`;
+      return;
+    }
+    render({...d, result: s.result, held: false, approval: s.state, approval_note: s.note}, llm);
+  }, 2000);
+}
+
 function render(d, llm) {
+  if (d.held) return renderHeld(d, llm);
   const r = d.result, unknown = !r.citation || r.citation.length === 0;
   let ans = esc(r.answer), badge = "";
   const m = r.answer.match(/^(네|아니요),\s*/);
@@ -150,6 +185,7 @@ function render(d, llm) {
       ${r.source_url ? `<a href="${esc(r.source_url)}" target="_blank" rel="noopener">법제처 원문 열기 ↗</a>` : ""}
       <span>응답 ${d.elapsed}초</span>
     </div>
+    ${d.approval ? `<div style="margin-top:10px;font-size:13px;padding:6px 10px;border-radius:6px;background:var(--yes-soft);color:var(--yes)">🧑‍💼 담당자 ${d.approval === "corrected" ? "수정 후 공개" : "승인 후 공개"}${d.approval_note ? " — " + esc(d.approval_note) : ""}</div>` : ""}
     <div class="steps">${steps}</div>
     <details><summary>검색 과정 보기</summary>
       <div style="margin-top:6px">질문 재작성</div><ul>${queries}</ul>
