@@ -356,6 +356,9 @@ SYSTEM = """너는 서울특별시 조례 질의응답 도우미다.
 - 근거 조항이 세부 기준·방법을 '시장이 따로 정한다', '규칙으로 정한다'고 위임했으면 그 사실을 한 문장으로 알려 준다.
 - 질문이 부정형("~안 되나요?", "못 ~나요?", "~안 해도 되나요?")이면 네/아니요가 헷갈리므로 conclusion은 "해당없음"으로 하고,
   첫 문장에 "~할 수 있습니다/~해야 합니다"처럼 결론을 긍정문으로 분명히 쓴다.
+- 질문이 선택형("A인가요, 아니면 B인가요?")이면 conclusion은 "해당없음"으로 하고, 첫 문장에 어느 쪽인지
+  (A인지, B인지, 둘 다인지, 둘 다 아닌지)를 바로 쓴다. 예) "카드 소지자와 카드에 등재된 가족 모두 면제 대상입니다."
+  단, 근거가 A·B 중 어느 쪽인지 정하지 않았으면(지급 방식·서류·절차 같은 세부가 근거에 없으면) basis는 "없음"이다.
 - '다만', 괄호( ) 안의 단서는 원칙에 붙는 조건이다. 단서가 적용 범위를 넓히는지('~도 포함한다', '~를 포함') 좁히는지
   ('~는 제외한다', '~에 한정한다', '그러하지 아니하다') 정확히 읽고, 결론을 원칙과 단서를 함께 적용한 결과로 쓴다.
   예) "A 소지자는 면제(다만, B 시설은 C 소지자를 포함)" → B 시설에서도 A 소지자는 면제이고, C 소지자도 추가로 면제.
@@ -560,12 +563,21 @@ _YESNO_HEAD = re.compile(r"^\s*(네|예|아니요|아니오)\s*[,.]\s*")
 _NEG_Q = re.compile(r"(?:^|\s)(?:안|못)(?:\s+\S|해|하면|되|돼|받|가도|써도)|않(?:아|나요|을까|는)|없(?:나요|을까|어요\?|죠)")
 
 
+# 선택형 질문: "A인가요, 아니면 B인가요?" → 네/아니요가 어느 쪽에 대한 답인지 모호
+_CHOICE_Q = re.compile(r"아니면|혹은")
+
+
+def _no_yesno(question):
+    """네/아니요 앞머리를 붙이지 않을 질문: 부정형('못 받나요?')과 선택형('A인가요, 아니면 B인가요?')."""
+    return bool(question) and bool(_NEG_Q.search(question) or _CHOICE_Q.search(question))
+
+
 def _finalize(out, question=""):
     """앞머리 '네,/아니요,'는 모델이 따로 고른 conclusion으로 코드가 붙입니다 (본문과 모순 방지).
-    부정형 질문('못 받나요?')에는 네/아니요가 뜻을 헷갈리게 하므로 붙이지 않습니다."""
+    부정형·선택형 질문에는 네/아니요가 뜻을 헷갈리게 하므로 붙이지 않습니다."""
     text = _YESNO_HEAD.sub("", out["answer"]).strip()
     c = out.get("conclusion")
-    if question and _NEG_Q.search(question):
+    if _no_yesno(question):
         return text
     return f"{c}, {text}" if c in ("네", "아니요") else text
 
@@ -643,7 +655,7 @@ def answer(question, trace=None):
                 return ("notGrounded", "다음 문장의 숫자가 근거 원문에 없다: " + "; ".join(
                     f"'{t[:80]}'의 {v:g}" for _, t, v in ni), sorted({i for i, _, _ in ni}))
             c = o.get("conclusion")
-            prefix = f"{c}, " if c in ("네", "아니요") and not _NEG_Q.search(question) else ""
+            prefix = f"{c}, " if c in ("네", "아니요") and not _no_yesno(question) else ""
             return upstage.groundedness_sentences(_context(_verify_ctx(o, hits)),
                                                   [_YESNO_HEAD.sub("", x["text"]) for x in o["sentences"]],
                                                   question, prefix)
