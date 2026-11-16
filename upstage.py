@@ -23,7 +23,7 @@ def client():
         _client = OpenAI(
             api_key=config.UPSTAGE_API_KEY,
             base_url=config.UPSTAGE_BASE_URL,
-            timeout=45.0,
+            timeout=25.0,
             max_retries=0,
         )
     return _client

@@ -119,7 +119,7 @@ ANALYZE_SCHEMA = {
 ANALYZE_SYS = """너는 서울특별시 조례 6종(주차장, 동물보호, 자전거, 도시공원, 청년, 금연) 검색 최적화기다.
 질문을 보고 다음 4가지를 JSON으로 출력하라.
 1. legal_queries: 일상어 질문을 대한민국 법령·자치법규(조례) 원문에 쓰이는 정식 행정·법률 용어로 바꾼 검색 쿼리 2~3개.
-   - 축약어나 구어체는 정식 법령 명칭·한자어(예: 차->자동차, 술->음주, 나이제한->연령 기준, 둘 다->둘 이상 중복)로 풀어서 포함하라.
+   - 축약어나 구어체는 정식 법령 명칭·한자어(예: 차->자동차, 술->음주, 나이제한/나이 상한·하한->용어의 정의 제3조 청년 연령 19세 39세, 열 명 중 세 명->10분의 3, 둘 다->둘 이상 중복)로 풀어서 포함하라.
    - 질문의 직접적 대상뿐 아니라 그로 인한 처분·감면·단서·위임 규정 키워드도 함께 생성하라.
 2. is_yes_no: 질문의 주된 요구가 예/아니오로 판단하는 단일 질문("~인가요?", "~되나요?", "~할 수 있나요?", "~내야 하나요?")이면 true, 금액·나이·방법·절차 등을 묻거나 복합 질문("~인가요? 그렇다면 얼마인가요?")이면 false.
 3. external_law: 질문이 명백히 서울시 조례 6종 범위 밖(특정 OO구의 자체 요금·할인·지원, 타 시·도 조례, 징역·벌금·범칙금·면허벌점 등 형사처벌, 실내 PC방·노래방 등 국민건강증진법 전용 실내시설, 전기차 충전구역 일반차 정차 과태료)일 때만 true로 하라.
@@ -361,9 +361,9 @@ SYSTEM = """너는 서울특별시 조례 질의응답 도우미다.
 - 답은 일반 시민이 이해할 수 있는 쉬운 말로 1~3문장으로 간결하게 쓴다. 금액·비율·나이·시간 같은 숫자와 단서 조항("다만, ~", 예외 규정)은 빠뜨리지 말고 정확히 쓴다.
 - 요금·감면·가산·비율 계산 시 '최초 N시간 이내 입출차 확인', '이상/초과/이하/미만', '중복 적용 불가' 등 전제 조건을 엄격히 대입한다. (예: 최초 2시간 이내 요건인 경우, 3시간 이용 시 요건 미충족이므로 2시간분만 임의 할인 계산 금지)
 - 질문에서 묻지 않은 인접 조항·부수 절차·별도 규정은 덧붙이지 않는다. 단, 질문이 여러 상황·의무·예외를 구분해 답하라고 요구하면 원칙 조항("하여야 한다/무료로 한다")과 예외·단서·준용("다만", "제O조를 준용한다", "우선한다")·별표 내 시설 분류(예: 운동시설 vs 강의실 등)를 정확히 대조해 빠뜨리지 말고 답한다.
-- 질문에 예/아니오로 답할 수 있는 조건 판단형 질문(예: ~인가요?, ~되나요?, ~내야 하나요?)인 경우, 반드시 "네," 또는 "아니요,"로 답변을 시작한다.
+- 질문에 예/아니오로 답할 수 있는 조건 판단형 질문(예: ~인가요?, ~되나요?, ~내야 하나요?)인 경우, 반드시 "네," 또는 "아니요,"로 답변을 시작한다. 특히 "법적으로 없는 건지, 반드시 해야 하는 건지" 또는 "~가 안 되는 거 맞죠?" 같은 선택형·이중부정 질문은 질문 문장의 핵심 서술(없는지/맞는지)에 맞춰 '네'/'아니요' 방향이 뒤집히지 않게 신중히 판단한다.
 - evidence_ids에는 답변 결론·수치·단서·별표 요금 산출에 실제로 사용한 [근거] 번호를 빠뜨리지 말고 모두 고른다(답변에 전혀 쓰지 않은 주변 조항만 제외할 것).
-- [함정 방어 1 - 근거 부재] 질문이 구체적 수치(거리·비율·횟수·금액·규격·시간·인원), 구체적 목록, 형사처벌(징역·벌금·벌점), 또는 위임된 세부 기준을 묻는데 [근거]에 포괄 위임만 있고 질문이 요구하는 답 자체가 없다면, "명시되어 있지 않다/확인할 수 없다/규정이 없다. 다만 ~"처럼 설명하지 말고 반드시 found=false, answer="확인 불가", evidence_ids=[]로 답하라.
+- [함정 방어 1 - 근거 부재] 질문이 구체적 수치(거리·비율·횟수·금액·규격·시간·인원), 구체적 목록, 형사처벌(징역·벌금·벌점), 가상 서비스/예외(새 자전거 지급·배송·65세 공영주차 무료 등), 또는 위임된 세부 기준을 묻는데 [근거]에 포괄 위임만 있거나 질문이 요구하는 규정 자체가 없다면, "명시되어 있지 않다/규정이 없다/아니요, 그런 규정은 없습니다"처럼 설명하지 말고 반드시 found=false, answer="확인 불가", evidence_ids=[]로 답하라.
 - [함정 방어 2 - 상위법/자치구/실내시설] 질문이 국가 상위법(도로교통법·국민건강증진법·동물보호법·친환경자동차법 등)상의 징역·벌금·범칙금·벌점·경찰/검찰/법원 절차·전기차 충전구역 정차 과태료, 실내 PC방·노래방·당구장 등 국민건강증진법상 실내 다중이용시설 흡연 과태료, 또는 특정 자치구(강남구·마포구·성동구 등 OO구)의 자체 요금·감면을 물으면 서울시 조례로 억지 연결하거나 "조례에는 ~가 없습니다"라고 단정하지 말고 반드시 found=false, answer="확인 불가", evidence_ids=[]로 답하라.
 결과는 JSON으로 낸다."""
 
@@ -375,6 +375,11 @@ MISSING_RULE_PAT = re.compile(
     r"|제시된\s*근거만으로는\s*확인할\s*수\s*없|조례\s*근거만으로는\s*확인할\s*수\s*없|제공된\s*근거만으로는\s*확인할\s*수\s*없"
     r"|구체적인\s*(?:감면\s*비율|과태료|금액|수수료|기준|절차|예외\s*규정)은\s*확인할\s*수\s*없|직접\s*부과하는\s*과태료\s*규정은\s*확인되지\s*않"
     r"|조례가\s*아닌\s*규칙으로\s*정하도록\s*위임되어"
+)
+NO_TRAP_RULE_PAT = re.compile(
+    r"(?:규정|조항|서비스|기준|제도)[^.]{0,30}(?:조례에(?:는)?\s*없습니다|규정[은이]\s*(?:조례에\s*)?(?:없습니다|없으며)|명시된\s*규정[은이]\s*없습니다|제정되어\s*있지\s*않습니다)"
+    r"|^(?:아니요,\s*)?(?:그런\s*예외\s*규정|[^.]{0,55}(?:전액\s*지원|절반만\s*부과|새\s*자전거를\s*대신\s*지급|집까지\s*배송해\s*주는\s*서비스)[^.]{0,15}규정)[은이]\s*없습니다"
+    r"|조례\s*별표\s*\d+에서\s*확인할\s*수\s*없"
 )
 EXT_DENY_PAT = re.compile(r"(?:형사\s*처벌|징역형?|벌점|도로교통법|국민건강증진법|동물보호법)[^.]{0,30}(?:없습니다|나오지\s*않|부과되지\s*않|적용되지\s*않)")
 
@@ -480,30 +485,64 @@ def answer(question, trace=None):
             return dict(UNKNOWN)
         trace["llm"] = out
 
-        used = [hits[i - 1] for i in out.get("evidence_ids", []) if 1 <= i <= len(hits)]
-        used = [h for h in used if not DISTRICT.search(h["label"])]
-        if not out.get("found") or not used:
-            trace["stop"] = "found_false" if not out.get("found") else "no_evidence"
-            return dict(UNKNOWN)
-        ans_txt = out.get("answer", "")
-        if config.USE_VERIFY:
-            if EXT_DENY_PAT.search(ans_txt):
-                trace["stop"] = "found_false"
-                return dict(UNKNOWN)
-            if not ans_txt.lstrip().startswith(("네,", "아니요,")) and MISSING_RULE_PAT.search(ans_txt):
-                trace["stop"] = "found_false"
-                return dict(UNKNOWN)
+        def _validate_out(cand_out):
+            c_used = [hits[i - 1] for i in cand_out.get("evidence_ids", []) if 1 <= i <= len(hits)]
+            c_used = [h for h in c_used if not DISTRICT.search(h["label"])]
+            if not cand_out.get("found") or not c_used:
+                return None, "", ("found_false" if not cand_out.get("found") else "no_evidence")
+            c_ans = cand_out.get("answer", "")
+            if config.USE_VERIFY:
+                if EXT_DENY_PAT.search(c_ans) or NO_TRAP_RULE_PAT.search(c_ans):
+                    return None, "", "found_false"
+                if not c_ans.lstrip().startswith(("네,", "아니요,")) and MISSING_RULE_PAT.search(c_ans):
+                    return None, "", "found_false"
+            return c_used, c_ans, None
 
-        # 검증 ②: 답이 고른 근거에 실제로 기반하는지 solar-decide Groundedness Check
+        used, ans_txt, stop_reason = _validate_out(out)
+        if stop_reason:
+            trace["stop"] = stop_reason
+            return dict(UNKNOWN)
+
+        # 검증 ②: 답이 고른 근거에 실제로 기반하는지 solar-decide Groundedness Check + 실패 시 1회 보정
         if config.USE_VERIFY and time.time() + 4 < deadline:
             try:
                 verdict = upstage.groundedness(_context(used), ans_txt, deadline=deadline)
-            except Exception:  # noqa: BLE001  일시적 검증 API 오류가 유효한 답변을 폐기하지 않도록
+            except Exception:  # noqa: BLE001
                 verdict = "notSure"
             trace["verdict"] = verdict
             if verdict == "notGrounded":
-                trace["stop"] = "not_grounded"
-                return dict(UNKNOWN)
+                repaired = False
+                if time.time() + 10 < deadline:
+                    repair_msg = (
+                        f"{user_msg}\n\n[이전 초안]\n{ans_txt}\n선택한 근거 번호: {out.get('evidence_ids', [])}\n\n"
+                        "[검증 피드백]\n이전 초안이 선택한 [근거] 번호만으로는 완전히 뒷받침되지 않아 검증을 통과하지 못했습니다. "
+                        "답변에서 언급한 모든 주장·수치·조항의 [근거] 번호를 evidence_ids에 빠짐없이 포함하고, "
+                        "원문에 없는 추측·옆 조항 내용은 제거해 다시 답하세요. 실제로 근거가 없다면 found=false로 답하세요."
+                    )
+                    try:
+                        r_raw = upstage.chat(
+                            [{"role": "system", "content": SYSTEM}, {"role": "user", "content": repair_msg}],
+                            response_format=SCHEMA,
+                            reasoning_effort="minimal",
+                            deadline=deadline,
+                        )
+                        r_out = json.loads(r_raw)
+                        trace["repair"] = r_out
+                        r_used, r_ans, r_stop = _validate_out(r_out)
+                        if not r_stop and time.time() + 4 < deadline:
+                            try:
+                                v2 = upstage.groundedness(_context(r_used), r_ans, deadline=deadline)
+                            except Exception:  # noqa: BLE001
+                                v2 = "notSure"
+                            trace["verdict2"] = v2
+                            if v2 != "notGrounded":
+                                used, ans_txt = r_used, r_ans
+                                repaired = True
+                    except Exception:  # noqa: BLE001
+                        pass
+                if not repaired:
+                    trace["stop"] = "not_grounded"
+                    return dict(UNKNOWN)
 
         trace["stop"] = "answered"
         citation = list(dict.fromkeys(h["label"] for h in used))   # 순서 유지, 중복 제거
