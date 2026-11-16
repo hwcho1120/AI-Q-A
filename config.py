@@ -65,7 +65,9 @@ USE_HYDE = os.environ.get("USE_HYDE", "1") == "1"         # 가상 조문(HyDE)�
 LAW_FOCUS = os.environ.get("LAW_FOCUS", "1") == "1"       # 상위권 점수 합이 가장 큰 조례 하나에서만 근거 선택
 REF_MAX_PER = 2               # 참조 조항 확장 시 조 하나당 최대 항 수
 LAW_FOCUS_RATIO = 0.5         # 1등 조례 점수의 이 비율 이상인 조례는 함께 남김
-ANSWER_REASONING = os.environ.get("ANSWER_REASONING", "low")   # 답변 단계 추론 모드: "" 끔 / "low" / "medium" / "high"
+# 답변 단계 추론 모드: "" 끔 / "low" / "medium" / "high"
+# 깨끗한 150문항 A/B(11/17): low → 근거 0.969 그대로, 평균 17.5s·최대 61.8s / 끔 → 근거 0.969, 평균 5.7s·최대 12.8s → 기본값 끔
+ANSWER_REASONING = os.environ.get("ANSWER_REASONING", "")
 CONSISTENCY_N = int(os.environ.get("CONSISTENCY_N", "1"))   # 답을 동시에 몇 개 만들어 다수결할지 (1이면 끔)
 CONSISTENCY_GRACE_SEC = 5.0   # 첫 답 이후 나머지 답을 기다리는 최대 시간 (응답 시간 상한)
 REPAIR_BUDGET_SEC = 45.0      # 질문 받은 뒤 이 시간이 지났으면 고쳐 쓰기를 건너뜀 (90초 제한 대비)
