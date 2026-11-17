@@ -20,7 +20,10 @@ def client():
             # SystemExit이 아니라 일반 예외로: 서버(app.py)가 잡아서 '확인 불가'로 응답할 수 있게
             raise RuntimeError("UPSTAGE_API_KEY가 없습니다. .env.example을 .env로 복사하고 키를 넣어 주세요.")
         from openai import OpenAI
-        _client = OpenAI(api_key=config.UPSTAGE_API_KEY, base_url=config.UPSTAGE_BASE_URL)
+        # SDK 기본 타임아웃은 600초라 호출 하나가 멈추면 문항 전체가 90초를 넘깁니다(실측 608초).
+        # 평소 호출은 수 초이므로 20초에서 끊고 다시 시도합니다.
+        _client = OpenAI(api_key=config.UPSTAGE_API_KEY, base_url=config.UPSTAGE_BASE_URL,
+                         timeout=20.0, max_retries=2)
     return _client
 
 
