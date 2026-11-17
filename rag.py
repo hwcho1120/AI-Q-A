@@ -350,6 +350,10 @@ SYSTEM = """너는 서울특별시 조례 질의응답 도우미다.
 - 답변은 sentences에 한 문장씩 나눠 쓴다. 각 문장의 evidence에는 그 문장의 내용이 실제로 적힌 근거 조항 이름(<근거 조항="..."> 값)을 고른다.
   문장에 쓴 숫자(금액·비율·나이·기간)는 그 문장의 evidence 조항 원문에 그대로 있어야 한다. 계산한 값이면 계산식(예: 400원 × 12)을 함께 쓴다.
   계산이 필요한 질문은 원문 값 → 계산식 → 결과 순서로, 계산 과정이 보이게 한 문장에 쓴다.
+- 질문이 구체적인 수치(대수·인원·금액·기간·비율)를 주고 결과나 기준 충족 여부를 물으면, 근거의 기준·비율을 그 수치에 적용해
+  계산한다. 결과값이 원문에 그대로 없어도 기준이 근거에 있으면 basis는 "있음"이다. 첫 문장에 최종 결과(예: 200대, 13명,
+  기준 미달로 위반)를 쓰고, 계산식은 "500대 × 40/100 = 200대"처럼 숫자·×·÷·+·−·= 로 쓴다(과반수는 "12명의 과반수 = 7명").
+- 질문이 둘 이상을 물으면("~와 ~를 각각", "또한 ~는?") 물음마다 답하는 문장을 빠짐없이 쓴다(문장 수 제한보다 우선).
 - 첫 문장은 "네"나 "아니요"로 시작하지 말고 결론(값·결과·가능 여부)을 바로 쓴다. (앞머리 "네,/아니요,"는 시스템이 붙인다)
 - 이어서 결론을 뒷받침하는 조건·숫자(금액·비율·나이)와 '다만' 같은 단서·예외를 쓴다. 질문과 관계없는 절차·위임·이의제기 설명은 쓰지 않는다.
 - 일반 시민이 이해할 수 있는 쉬운 말로 2~4문장. 숫자는 근거에 적힌 값 그대로 쓴다.
@@ -364,7 +368,8 @@ SYSTEM = """너는 서울특별시 조례 질의응답 도우미다.
   예) "A 소지자는 면제(다만, B 시설은 C 소지자를 포함)" → B 시설에서도 A 소지자는 면제이고, C 소지자도 추가로 면제.
 - 감면·혜택이 둘 이상 겹치는 질문이면, 근거에 중복 적용을 정한 조항이 있는지 먼저 확인하고 그 조항에 따라 답한다.
 - 다른 조례의 조항을 끌어와 섞지 않는다. 질문이 묻는 조례의 근거만 쓴다.
-- 결론 문장의 evidence에는 결론을 직접 정한 조항을 맨 앞에 둔다. 답 전체에서 쓰는 조항은 결론에 꼭 필요한 1~3개로 줄이고, 부수 설명용 조항은 쓰지 않는다.- 질문의 장소·대상·상황에 어떤 규정(과태료·감면·금지 등)이 적용된다고 답하려면, 그 장소·대상이 근거 조항의 적용 범위
+- 결론 문장의 evidence에는 결론을 직접 정한 조항을 맨 앞에 둔다. 답 전체에서 쓰는 조항은 결론에 꼭 필요한 1~3개로 줄이고, 부수 설명용 조항은 쓰지 않는다.
+- 질문의 장소·대상·상황에 어떤 규정(과태료·감면·금지 등)이 적용된다고 답하려면, 그 장소·대상이 근거 조항의 적용 범위
   (지정 대상 목록, 감면 대상 목록 등)에 실제로 적혀 있어야 한다. 적혀 있지 않으면 적용된다고 추측하지 말고 found를 false로 한다.
 - 근거로 질문에 답할 수 없으면(질문한 규정·금액이 근거에 없으면) found를 false로 한다.
 - 자치구(OO구) 조례나 규칙은 근거로 쓰지 않는다.
@@ -517,13 +522,123 @@ _CALC = re.compile(r"[×x*=+/÷]|합계|계산|곱하|나누|더하")
 _DELEGATED = re.compile(r"위임|따로 정|규칙으로 정|시장이 정|구청장이 정|별도로 정")
 
 
+# '기준에 해당하지 않습니다'처럼 규정을 적용한 결론(해당·적용·충족 여부)은 규정 부재가 아닙니다.
+_APPLY_NEG = re.compile(r"해당하지|해당되지|적용되지|적용하지|충족하지|포함되지|속하지|대상이 아니")
+
+
 def _claims_no_rule(out):
     """첫 문장이 '~규정이 없습니다'류이면 모델 판정(basis)과 상관없이 '근거 없음'으로 봅니다.
     단, '세부는 ~가 따로 정한다(위임)'는 답은 제도 자체는 조례에 있는 경우이므로 제외합니다."""
     first = (out.get("sentences") or [{}])[0].get("text", "")
     # '~기준으로 달마다 받을 수 없습니다'처럼 '할 수 없다'(불가 결론)는 규정 부재가 아니므로 제외합니다.
-    hit = any(not _CANNOT.search(m.group(0)) for m in _NO_RULE.finditer(first))
+    hit = any(not _CANNOT.search(m.group(0)) and not _APPLY_NEG.search(m.group(0))
+              for m in _NO_RULE.finditer(first))
     return hit and not _DELEGATED.search(out.get("answer", "") or first)
+
+
+# ---- 계산 검사: 답변에 쓴 계산식(A × B = C)을 코드가 직접 계산해 결과를 대조합니다.
+_EXPR_TOK = re.compile(
+    r"\s*(?:(?P<frac>(?P<den>\d[\d,]*(?:\.\d+)?)\s*분의\s*(?P<numer>\d[\d,]*(?:\.\d+)?))"
+    r"|(?P<num>\d[\d,]*(?:\.\d+)?)\s*(?P<mul>억|만|천)?\s*"
+    r"(?P<unit>퍼센트|%|원|대|명|개월|일|년|회|㎡|제곱미터|배|킬로미터|km|시간|분|세|살|건|개|구획)?"
+    r"|(?P<op>[×xX*÷/+\-−])|(?P<eq>=)|(?P<par>[()]))")
+_MUL = {"억": 1e8, "만": 1e4, "천": 1e3}
+
+
+def _f(s):
+    return float(s.replace(",", ""))
+
+
+def _expr_runs(text):
+    """문장에서 '숫자·연산자·='가 이어진 구간을 [(토큰 문자열 리스트 by '=')...]로 뽑습니다."""
+    runs, cur, i = [], [], 0
+    while i < len(text):
+        m = _EXPR_TOK.match(text, i)
+        if not m or m.end() == i or not any(m.group(k) for k in ("frac", "num", "op", "eq", "par")):
+            if cur:
+                runs.append(cur)
+                cur = []
+            i += 1
+            continue
+        if m.group("frac"):
+            cur.append(f"({_f(m.group('numer'))}/{_f(m.group('den'))})")
+        elif m.group("num"):
+            v = _f(m.group("num")) * _MUL.get(m.group("mul") or "", 1)
+            if m.group("unit") in ("%", "퍼센트"):
+                v /= 100
+            cur.append(repr(v))
+        elif m.group("op"):
+            cur.append({"×": "*", "x": "*", "X": "*", "÷": "/", "−": "-"}.get(m.group("op"), m.group("op")))
+        else:
+            cur.append(m.group("eq") or m.group("par"))
+        i = m.end()
+    if cur:
+        runs.append(cur)
+    out = []
+    for run in runs:
+        if "=" not in run:
+            continue
+        parts, p = [], []
+        for t in run:
+            if t == "=":
+                parts.append(p)
+                p = []
+            else:
+                p.append(t)
+        parts.append(p)
+        out.append(parts)
+    return out
+
+
+def _eval(tokens):
+    s = "".join(tokens)
+    if not s or not re.fullmatch(r"[\d.e+\-*/() ]+", s) or not re.search(r"\d", s):
+        return None
+    try:
+        return float(eval(s, {"__builtins__": {}}, {}))  # noqa: S307  숫자·사칙연산만 통과한 문자열
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _calc_check(text):
+    """(틀린 계산 [(식, 쓴 값, 올바른 값)], 맞게 계산된 값 집합)"""
+    wrong, ok = [], set()
+    for parts in _expr_runs(text):
+        vals = [_eval(p) for p in parts]
+        for a, b, pa in zip(vals, vals[1:], parts):
+            if a is None or b is None:
+                continue
+            if abs(a - b) <= max(abs(a), 1) * 0.005:
+                ok.update((a, b))
+            elif len(pa) > 1:                  # 식 → 결과가 어긋남 (단일 숫자끼리의 '='는 판단하지 않음)
+                wrong.append(("".join(pa), b, a))
+    return wrong, ok
+
+
+_CONSTS = {2.0, 10.0, 12.0, 100.0, 1000.0, 365.0}
+
+
+def _derivable(v, pool, qvals):
+    """질문의 수치와 근거 수치로 사칙연산 1~2번(두 번째는 질문 수치·상수와)이면 나오는 값인가. 과반수도 허용."""
+    key = lambda x: round(x, 6)  # noqa: E731
+    P = {key(x) for x in pool | _CONSTS}
+    S = P | {key(x // 2 + 1) for x in pool}           # 과반수
+
+    def one(t):
+        if key(t) in S:
+            return True
+        for a in P:
+            for c in (t - a, a - t, t + a, t / a if a else None, t * a, a / t if t else None):
+                if c is not None and key(c) in P:
+                    return True
+        return False
+    if one(v):
+        return True
+    for q in qvals | _CONSTS:
+        for c in (v - q, v + q, q - v, v / q if q else None, v * q):
+            if c is not None and one(c):
+                return True
+    return False
 
 
 def _values(text):
@@ -543,17 +658,29 @@ def _number_issues(out, hits, question):
     by_label = {h["label"]: h for h in hits}
     all_used = " ".join(by_label[l].get("context", "") for l in out.get("evidence", []) if l in by_label)
     allowed_q = _values(question)
-    issues = []
-    for i, snt in enumerate(out.get("sentences", [])):
+    used_vals = _values(all_used)
+    issues, calc_ok = [], set()
+    sents = out.get("sentences", [])
+    for i, snt in enumerate(sents):                   # ① 계산식은 코드가 직접 계산해 대조
+        wrong, ok = _calc_check(snt["text"])
+        calc_ok |= ok
+        for expr, got, right in wrong:
+            fmt = lambda x: f"{x:,.0f}" if abs(x - round(x)) < 1e-9 else f"{x:,.4g}"  # noqa: E731
+            issues.append((i, snt["text"], got, f"계산이 틀렸다: {expr} = {fmt(right)} (답변은 {fmt(got)})"))
+    # 질문이 구체적인 수치를 주면(계산·판단형) 그 수치와 근거 값으로 계산되는 결과도 허용합니다.
+    scenario = {v for v in allowed_q if v > 1}
+    for i, snt in enumerate(sents):                   # ② 숫자 대조
         text = snt["text"]
         if _CALC.search(text):
-            continue                          # 계산식을 밝힌 문장은 결과값이 원문에 없을 수 있음
+            continue                          # 계산식을 밝힌 문장은 ①에서 계산을 확인함
         src = " ".join(by_label[l].get("context", "") for l in snt.get("evidence", []) if l in by_label)
-        src_vals = _values(src) | _values(all_used)        # 문장 근거 + 같은 답변이 고른 근거 전체
+        src_vals = _values(src) | used_vals              # 문장 근거 + 같은 답변이 고른 근거 전체
         for v in _values(text):
-            if v in allowed_q or v <= 1 or v in src_vals:
+            if v in allowed_q or v <= 1 or v in src_vals or v in calc_ok:
                 continue
-            issues.append((i, text, v))
+            if scenario and _derivable(v, used_vals | allowed_q | calc_ok, scenario):
+                continue
+            issues.append((i, text, v, None))
     return issues
 
 
@@ -598,6 +725,31 @@ def _pick(out, hits):
         used = [h for h in used if h["law"] == law]
         used = list({h["label"]: h for h in used}.values())[:config.MAX_CITATIONS]
     return used
+
+
+_SAME_ART_PARA = re.compile(r"(?<![조\d])(?<!조 )제\s?(\d+)\s?항")
+_PARA_LABEL = re.compile(r"^(.*제\d+조(?:의\d+)?) 제(\d+)항$")
+
+
+def _with_sibling_refs(citation):
+    """인용한 항의 본문이 같은 조의 다른 항을 가리키면('제1항에 따라', '제2항의') 그 항도 인용합니다.
+    해당 항이 적용 범위·대상을 정하는 경우가 많아, 둘을 함께 내야 근거가 완전합니다."""
+    _load()
+    groups = _cache[config.CHUNK_UNIT + ":groups"]
+    by_label = {c["label"]: c for g in groups.values() for c in g}
+    out = list(citation)
+    for lab in citation:
+        m = _PARA_LABEL.match(lab)
+        if not m or lab not in by_label:
+            continue
+        body = by_label[lab].get("context", "").split("\n", 1)[-1]
+        for n in dict.fromkeys(_SAME_ART_PARA.findall(body)):
+            ref = f"{m.group(1)} 제{n}항"
+            if len(out) >= config.CITE_SIBLING_MAX_TOTAL:
+                return out
+            if ref != lab and ref in by_label and ref not in out:
+                out.append(ref)
+    return out
 
 
 def _with_annex_parent(citation):
@@ -652,8 +804,9 @@ def answer(question, trace=None):
             """코드 숫자 대조 → 통과하면 LLM 문장별 검증. (verdict, reason, 근거 없는 문장 번호)"""
             ni = _number_issues(o, hits, question)
             if ni:
-                return ("notGrounded", "다음 문장의 숫자가 근거 원문에 없다: " + "; ".join(
-                    f"'{t[:80]}'의 {v:g}" for _, t, v in ni), sorted({i for i, _, _ in ni}))
+                return ("notGrounded", "; ".join(
+                    msg or f"다음 문장의 숫자가 근거 원문에 없다: '{t[:80]}'의 {v:g}" for _, t, v, msg in ni),
+                    sorted({i for i, _, _, _ in ni}))
             c = o.get("conclusion")
             prefix = f"{c}, " if c in ("네", "아니요") and not _no_yesno(question) else ""
             return upstage.groundedness_sentences(_context(_verify_ctx(o, hits)),
@@ -693,6 +846,8 @@ def answer(question, trace=None):
     citation = list(dict.fromkeys(h["label"] for h in used))   # 순서 유지, 중복 제거
     if config.CITE_ANNEX_PARENT:
         citation = _with_annex_parent(citation)
+    if config.CITE_SIBLING_REFS:
+        citation = _with_sibling_refs(citation)
     first = used[0]
     return {"answer": _finalize(out, question), "citation": citation,
             "source_url": first["source_url"], "effective_date": first["effective_date"]}

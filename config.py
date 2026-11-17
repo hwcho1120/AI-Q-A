@@ -53,7 +53,11 @@ REWRITE_WEIGHT = 0.95         # 재작성 질문 점수에 곱하는 값 (원 �
 SIBLING_FROM_TOP = 3          # 상위 몇 개 근거에 대해 같은 조의 다른 항을 덧붙일지
 MAX_CONTEXT = 16              # LLM에 넘기는 근거 최대 개수 (검색 top_k + 참조 조항 + 형제 항)
 CITE_ANNEX_PARENT = os.environ.get("CITE_ANNEX_PARENT", "1") == "1"   # 별표 인용 시 그 별표를 정한 본문 조항도 인용
-MAX_CITATIONS = 3            # 인용 최대 개수 (여러 개 냈을 때 채점 규칙은 운영진 공지 확인)
+# 인용한 항이 같은 조의 다른 항을 가리키면("제1항에 따라") 그 항도 인용. 운영진 안내상 인용 누락은 오답이고
+# 추가 인용 감점은 언급이 없어 기본 켬. 감점이 확인되면 CITE_SIBLING_REFS=0
+CITE_SIBLING_REFS = os.environ.get("CITE_SIBLING_REFS", "1") == "1"
+CITE_SIBLING_MAX_TOTAL = 5    # 위 보강을 포함한 인용 최대 개수
+MAX_CITATIONS = 3           # 인용 최대 개수 (여러 개 냈을 때 채점 규칙은 운영진 공지 확인)
 USE_REPAIR =os.environ.get("USE_REPAIR", "1") == "1"     # 검증 실패 시 한 번 고쳐 쓰기
 # 검색 점수가 이보다 낮으면 '확인 불가' 후보로 봅니다. TODO: 공개 예시로 직접 맞춰 보세요.
 MIN_SCORE = 0.25
