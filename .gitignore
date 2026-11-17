@@ -1,0 +1,10 @@
+.env
+__pycache__/
+data/annex_files/
+data/vectors_*.npy
+results/
+.venv/
+.DS_Store
+.claude/settings.local.json
+CLAUDE.md
+.claude/
