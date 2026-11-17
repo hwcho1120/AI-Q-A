@@ -3,6 +3,7 @@
 Solar는 OpenAI SDK와 호환됩니다. base_url만 https://api.upstage.ai/v1 로 바꾸면 됩니다.
 """
 import json
+import random
 import threading
 import time
 
@@ -21,20 +22,22 @@ def client():
             raise RuntimeError("UPSTAGE_API_KEY가 없습니다. .env.example을 .env로 복사하고 키를 넣어 주세요.")
         from openai import OpenAI
         # SDK 기본 타임아웃은 600초라 호출 하나가 멈추면 문항 전체가 90초를 넘깁니다(실측 608초).
-        # 평소 호출은 수 초이므로 20초에서 끊고 다시 시도합니다.
+        # 평소 호출은 수 초이므로 20초에서 끊고 _retry로 안전하게 재시도합니다.
         _client = OpenAI(api_key=config.UPSTAGE_API_KEY, base_url=config.UPSTAGE_BASE_URL,
-                         timeout=20.0, max_retries=2)
+                         timeout=20.0, max_retries=0)
     return _client
 
 
 def _retry(fn, tries=4):
-    """429(too_many_requests)는 잠시 기다렸다 다시 부릅니다. 한도는 Organization 단위로 공유됩니다."""
+    """429/일시적 서버·네트워크 오류 시 지수 백오프 + 지터로 재시도합니다."""
     for i in range(tries):
         try:
             return fn()
         except Exception as e:  # noqa: BLE001
-            if "429" in str(e) and i < tries - 1:
-                time.sleep(2 ** i)
+            msg = str(e)
+            transient = any(code in msg for code in ("429", "500", "502", "503", "504", "timeout", "Timeout", "Connection"))
+            if transient and i < tries - 1:
+                time.sleep(min((1.5 ** i) + random.uniform(0.1, 0.5), 5.0))
                 continue
             raise
 
@@ -179,12 +182,15 @@ def groundedness_sentences(context, sentences, question="", prefix=""):
     """
     numbered = "\n".join(f"[{i}] {(prefix if i == 1 else '') + t}" for i, t in enumerate(sentences, 1))
     sys_msg = _GROUND_SYSTEM + "\nunsupported에는 근거에 없는 사실이 들어 있는 문장의 번호([n])를 모두 넣는다. 없으면 빈 배열."
-    raw = chat([{"role": "system", "content": sys_msg},
-                {"role": "user", "content": f"[근거]\n{context}\n\n[질문]\n{question}\n\n[답변 문장]\n{numbered}"}],
-               response_format=_GROUND_SENT_SCHEMA)
-    out = json.loads(raw)
-    bad = sorted({i - 1 for i in out.get("unsupported", []) if 1 <= i <= len(sentences)})
-    return out.get("verdict", "notSure"), out.get("reason", ""), bad
+    try:
+        raw = chat([{"role": "system", "content": sys_msg},
+                    {"role": "user", "content": f"[근거]\n{context}\n\n[질문]\n{question}\n\n[답변 문장]\n{numbered}"}],
+                   response_format=_GROUND_SENT_SCHEMA)
+        out = json.loads(raw)
+        bad = sorted({i - 1 for i in out.get("unsupported", []) if 1 <= i <= len(sentences)})
+        return out.get("verdict", "notSure"), out.get("reason", ""), bad
+    except Exception:  # noqa: BLE001  일시적 검증 오류가 유효한 답변을 폐기하지 않도록
+        return "notSure", "", []
 
 
 def groundedness(context, answer):

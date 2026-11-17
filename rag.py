@@ -17,6 +17,14 @@ import config
 
 UNKNOWN = {"answer": "확인 불가", "citation": [], "source_url": "", "effective_date": ""}
 DISTRICT = re.compile(r"서울특별시\s*\S+구\s")      # 'OO구' 자치구 조례 인용 방지
+NAMED_LOCAL_GOV_PAT = re.compile(
+    r"(?:강남|서초|송파|마포|성동|영등포|종로|용산|광진|동대문|중랑|성북|강북|도봉|노원|은평|서대문|양천|강서|구로|금천|동작|관악|강동)구"
+    r"|(?:서울(?:특별시)?\s*|(?<=[\s,]))중구(?=[에의에서을를은는도과와,\s])"
+    r"|수원시|성남시|고양시|용인시|부산시|인천시|대구시|대전시|광주시|울산시|세종시"
+)
+EXT_HARD_TRAP_PAT = re.compile(
+    r"PC방|피시방|노래방|당구장|운전면허\s*벌점|면허\s*벌점|\b징역|징역형?|범칙금|형사\s*처벌|검찰|경찰(?:청|서|관|에)|법원(?:\s|을|에|의)"
+)
 
 _cache = {}
 
@@ -352,7 +360,10 @@ SYSTEM = """너는 서울특별시 조례 질의응답 도우미다.
   계산이 필요한 질문은 원문 값 → 계산식 → 결과 순서로, 계산 과정이 보이게 한 문장에 쓴다.
 - 질문이 구체적인 수치(대수·인원·금액·기간·비율)를 주고 결과나 기준 충족 여부를 물으면, 근거의 기준·비율을 그 수치에 적용해
   계산한다. 결과값이 원문에 그대로 없어도 기준이 근거에 있으면 basis는 "있음"이다. 첫 문장에 최종 결과(예: 200대, 13명,
-  기준 미달로 위반)를 쓰고, 계산식은 "500대 × 40/100 = 200대"처럼 숫자·×·÷·+·−·= 로 쓴다(과반수는 "12명의 과반수 = 7명").
+  기준 미달로 위반)를 쓰고, 계산식은 "500대 × 40/100 = 200대"처럼 숫자·×·÷·+·−·= 로 쓴다(과반수는 "12명의 과반수 = 7명"). 여러 인원·품목·시간 구간(기본 시간 + 초과 시간)을 합산할 때는 각 항목 단가·가산·할인을 표에서 하나씩 확인해 합산 결과를 검산한다.
+- 근거 조항이 '제○조제○항을 준용한다'고 적고 [근거]에 그 준용 대상 조항이 함께 있으면, 준용 대상 조항의 요건·단서·예외까지 그대로 적용해 결론을 내린다.
+- 답변할 때 '~제○조를 봐야 합니다'처럼 조항 번호 안내로만 끝내지 말고, 그 근거 조항이 실제로 정한 구체적 내용(대상 포함 여부, 기준·수치·별표/별도 명칭 등)을 직접 풀어서 답한다.
+- 근거 조항에 있는 비슷한 제도(예: 다자녀 주차요금 감면)를 질문이 묻는 전혀 다른 제도(예: 출산 축하 포인트 적립)로 억지 연결하지 않는다. 질문의 핵심 제도 자체가 조례에 없으면 basis는 "없음", found는 false로 한다.
 - 질문이 둘 이상을 물으면("~와 ~를 각각", "또한 ~는?") 물음마다 답하는 문장을 빠짐없이 쓴다(문장 수 제한보다 우선).
 - 첫 문장은 "네"나 "아니요"로 시작하지 말고 결론(값·결과·가능 여부)을 바로 쓴다. (앞머리 "네,/아니요,"는 시스템이 붙인다)
 - 이어서 결론을 뒷받침하는 조건·숫자(금액·비율·나이)와 '다만' 같은 단서·예외를 쓴다. 질문과 관계없는 절차·위임·이의제기 설명은 쓰지 않는다.
@@ -519,7 +530,7 @@ _NUM = re.compile(r"(\d[\d,]*(?:\.\d+)?)\s*(만|천)?")
 _CALC = re.compile(r"[×x*=+/÷]|합계|계산|곱하|나누|더하")
 
 
-_DELEGATED = re.compile(r"위임|따로 정|규칙으로 정|시장이 정|구청장이 정|별도로 정")
+_DELEGATED = re.compile(r"위임|(?:따로|별도로|규칙으로|시장이|구청장이)\s*정(?:한|하|해\s*두|해지)")
 
 
 # '기준에 해당하지 않습니다'처럼 규정을 적용한 결론(해당·적용·충족 여부)은 규정 부재가 아닙니다.
@@ -667,8 +678,8 @@ def _number_issues(out, hits, question):
         for expr, got, right in wrong:
             fmt = lambda x: f"{x:,.0f}" if abs(x - round(x)) < 1e-9 else f"{x:,.4g}"  # noqa: E731
             issues.append((i, snt["text"], got, f"계산이 틀렸다: {expr} = {fmt(right)} (답변은 {fmt(got)})"))
-    # 질문이 구체적인 수치를 주면(계산·판단형) 그 수치와 근거 값으로 계산되는 결과도 허용합니다.
-    scenario = {v for v in allowed_q if v > 1}
+    # 질문이 구체적인 수치를 주면(계산·판단형) 그 수치(1명·2명 등 및 '각 N' 2배수 포함)와 근거 값으로 계산되는 결과도 허용합니다.
+    scenario = allowed_q | {2 * v for v in allowed_q if v <= 10}
     for i, snt in enumerate(sents):                   # ② 숫자 대조
         text = snt["text"]
         if _CALC.search(text):
@@ -775,6 +786,9 @@ def answer(question, trace=None):
     if trace is None:
         trace = {}
     t_start = _time.time()
+    if config.USE_VERIFY and (NAMED_LOCAL_GOV_PAT.search(question) or EXT_HARD_TRAP_PAT.search(question)):
+        trace["stop"] = "min_score"
+        return dict(UNKNOWN)
     queries = rewrite_queries(question)
     trace["queries"] = queries
     top = retrieve(question, queries=queries)

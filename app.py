@@ -9,6 +9,7 @@
 import asyncio
 import logging
 import time
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -18,8 +19,21 @@ from pydantic import BaseModel
 import config
 import rag
 
-app = FastAPI(title="서울시 조례 Q&A")
 log = logging.getLogger("uvicorn.error")
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    try:
+        rag._load()
+        rag._links()
+        log.info("RAG index warmed up (unit=%s)", config.CHUNK_UNIT)
+    except Exception as e:  # noqa: BLE001
+        log.warning("warmup failed: %r", e)
+    yield
+
+
+app = FastAPI(title="서울시 조례 Q&A", lifespan=lifespan)
 
 try:  # 시연 화면(/, /api/*). 실패해도 채점용 /ask 는 그대로 동작해야 합니다.
     import ui_api
