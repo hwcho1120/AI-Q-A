@@ -8,8 +8,10 @@
 """
 import asyncio
 import logging
+import re
 
 from fastapi import FastAPI
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
 import config
@@ -37,3 +39,39 @@ async def ask(req: Ask):
         log.warning("ask failed: %r", e)
         return dict(rag.UNKNOWN)
 
+
+# ------------------------------------------------------------ 시민용 화면 (채점 API와 별개)
+STATIC = config.ROOT / "static"
+_AMEND = re.compile(r"<(?:개정|신설|전문개정|본조신설|삭제)[^>]*>|\[(?:본조신설|전문개정|제목개정|종전)[^\]]*\]")
+_evidence = {}
+
+
+def _evidence_index():
+    """인용 라벨 → 원문. 별표처럼 한 라벨에 조각이 여럿이면 이어 붙인다."""
+    if not _evidence:
+        for c in rag._load()[0]:
+            e = _evidence.setdefault(c["label"], {"label": c["label"], "heading": "", "parts": [],
+                                                  "source_url": c["source_url"], "effective_date": c["effective_date"]})
+            lines = c["text"].split("\n")
+            if lines[0].startswith("[") and lines[0].endswith("]"):     # 항 조각의 머리말 '[법 제N조(제목)]'
+                e["heading"] = e["heading"] or lines[0][1:-1]
+                lines = lines[1:]
+            e["parts"].append("\n".join(lines))
+    return _evidence
+
+
+@app.get("/")
+def index():
+    return FileResponse(STATIC / "index.html")
+
+
+@app.get("/evidence")
+def evidence(label: str):
+    """화면에서 근거 조항 원문을 펼칠 때 쓴다. (/ask 응답 형식과 무관)"""
+    e = _evidence_index().get(label)
+    if not e:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    text = _AMEND.sub("", "\n\n".join(e["parts"]))
+    text = re.sub(r"[ \t]+\n", "\n", re.sub(r"\n{3,}", "\n\n", text)).strip()
+    return {"label": e["label"], "heading": e["heading"], "text": text,
+            "source_url": e["source_url"], "effective_date": e["effective_date"]}
