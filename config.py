@@ -53,9 +53,9 @@ REWRITE_WEIGHT = 0.95         # 재작성 질문 점수에 곱하는 값 (원 �
 SIBLING_FROM_TOP = 3          # 상위 몇 개 근거에 대해 같은 조의 다른 항을 덧붙일지
 MAX_CONTEXT = 16              # LLM에 넘기는 근거 최대 개수 (검색 top_k + 참조 조항 + 형제 항)
 CITE_ANNEX_PARENT = os.environ.get("CITE_ANNEX_PARENT", "1") == "1"   # 별표 인용 시 그 별표를 정한 본문 조항도 인용
-# 인용한 항이 같은 조의 다른 항을 가리키면("제1항에 따라") 그 항도 인용. 운영진 안내상 인용 누락은 오답이고
-# 추가 인용 감점은 언급이 없어 기본 켬. 감점이 확인되면 CITE_SIBLING_REFS=0
-CITE_SIBLING_REFS = os.environ.get("CITE_SIBLING_REFS", "1") == "1"
+# 인용한 항이 같은 조의 다른 항을 가리키면("제1항에 따라") 그 항도 인용.
+# 1,200문항 측정 결과 Recall 개선은 미미(TS3 +0.0024)하고 Precision(-0.065~-0.072)·Exact Match(-10%p) 손실이 커 기본 OFF.
+CITE_SIBLING_REFS = os.environ.get("CITE_SIBLING_REFS", "0") == "1"
 CITE_SIBLING_MAX_TOTAL = 5    # 위 보강을 포함한 인용 최대 개수
 MAX_CITATIONS = 3           # 인용 최대 개수 (여러 개 냈을 때 채점 규칙은 운영진 공지 확인)
 USE_REPAIR =os.environ.get("USE_REPAIR", "1") == "1"     # 검증 실패 시 한 번 고쳐 쓰기

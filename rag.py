@@ -360,7 +360,7 @@ SYSTEM = """너는 서울특별시 조례 질의응답 도우미다.
   계산이 필요한 질문은 원문 값 → 계산식 → 결과 순서로, 계산 과정이 보이게 한 문장에 쓴다.
 - 질문이 구체적인 수치(대수·인원·금액·기간·비율)를 주고 결과나 기준 충족 여부를 물으면, 근거의 기준·비율을 그 수치에 적용해
   계산한다. 결과값이 원문에 그대로 없어도 기준이 근거에 있으면 basis는 "있음"이다. 첫 문장에 최종 결과(예: 200대, 13명,
-  기준 미달로 위반)를 쓰고, 계산식은 "500대 × 40/100 = 200대"처럼 숫자·×·÷·+·−·= 로 쓴다(과반수는 "12명의 과반수 = 7명"). 여러 인원·품목·시간 구간(기본 시간 + 초과 시간)을 합산할 때는 각 항목 단가·가산·할인을 표에서 하나씩 확인해 합산 결과를 검산한다.
+  기준 미달로 위반)를 쓰고, 계산식은 "500대 × 40/100 = 200대"처럼 숫자·×·÷·+·−·= 로 쓴다(과반수는 "12명의 과반수 = 7명"). 여러 인원·품목·시간 구간(기본 시간 + 초과 시간)을 합산할 때는 각 항목 단가·가산·할인을 표에서 하나씩 확인해 합산 결과를 검산하고, '2시간당'·'1구획당'처럼 기본 요금 단위가 묶음 기준이면 그 묶음 요금을 시간 수로 다시 곱하지 않는다.
 - 근거 조항이 '제○조제○항을 준용한다'고 적고 [근거]에 그 준용 대상 조항이 함께 있으면, 준용 대상 조항의 요건·단서·예외까지 그대로 적용해 결론을 내린다.
 - 답변할 때 '~제○조를 봐야 합니다'처럼 조항 번호 안내로만 끝내지 말고, 그 근거 조항이 실제로 정한 구체적 내용(대상 포함 여부, 기준·수치·별표/별도 명칭 등)을 직접 풀어서 답한다.
 - 근거 조항에 있는 비슷한 제도(예: 다자녀 주차요금 감면)를 질문이 묻는 전혀 다른 제도(예: 출산 축하 포인트 적립)로 억지 연결하지 않는다. 질문의 핵심 제도 자체가 조례에 없으면 basis는 "없음", found는 false로 한다.
@@ -537,13 +537,21 @@ _DELEGATED = re.compile(r"위임|(?:따로|별도로|규칙으로|시장이|구�
 _APPLY_NEG = re.compile(r"해당하지|해당되지|적용되지|적용하지|충족하지|포함되지|속하지|대상이 아니")
 
 
+# 첫 절에서 이미 적극적 규정('~해야/할 수 있/규정되어 있...')을 답한 뒤 부수 항목이 없음을 적는 경우는 규정 부재에서 제외
+_AFFIRM_CLAUSE = re.compile(r"(?:하여야|해야|할\s*수\s*있|규정되어\s*있|적용되|부과|지급|지원|면제|감면|납부)")
+
+
 def _claims_no_rule(out):
     """첫 문장이 '~규정이 없습니다'류이면 모델 판정(basis)과 상관없이 '근거 없음'으로 봅니다.
-    단, '세부는 ~가 따로 정한다(위임)'는 답은 제도 자체는 조례에 있는 경우이므로 제외합니다."""
+    단, '세부는 ~가 따로 정한다(위임)'는 답이나 앞 절에서 적극적 규정을 먼저 설명한 경우는 제외합니다."""
     first = (out.get("sentences") or [{}])[0].get("text", "")
     # '~기준으로 달마다 받을 수 없습니다'처럼 '할 수 없다'(불가 결론)는 규정 부재가 아니므로 제외합니다.
-    hit = any(not _CANNOT.search(m.group(0)) and not _APPLY_NEG.search(m.group(0))
-              for m in _NO_RULE.finditer(first))
+    hit = any(
+        not _CANNOT.search(m.group(0))
+        and not _APPLY_NEG.search(m.group(0))
+        and not ("," in first[:m.start()] and _AFFIRM_CLAUSE.search(first[:m.start()].rsplit(",", 1)[0]))
+        for m in _NO_RULE.finditer(first)
+    )
     return hit and not _DELEGATED.search(out.get("answer", "") or first)
 
 
@@ -611,10 +619,15 @@ def _eval(tokens):
         return None
 
 
+_DATE_LIT = re.compile(r"(?:\d{2,4}\s*년\s*)?\d{1,2}\s*월\s*\d{1,2}\s*일")
+
+
 def _calc_check(text):
     """(틀린 계산 [(식, 쓴 값, 올바른 값)], 맞게 계산된 값 집합)"""
     wrong, ok = [], set()
-    for parts in _expr_runs(text):
+    # 날짜 표현(예: '6월 1일 + 7일 = 6월 8일')은 '월'에서 끊겨 '1+7=6'으로 오판하지 않도록 가립니다.
+    cleaned = _DATE_LIT.sub(" ", text)
+    for parts in _expr_runs(cleaned):
         vals = [_eval(p) for p in parts]
         for a, b, pa in zip(vals, vals[1:], parts):
             if a is None or b is None:
@@ -688,6 +701,8 @@ def _number_issues(out, hits, question):
         src_vals = _values(src) | used_vals              # 문장 근거 + 같은 답변이 고른 근거 전체
         for v in _values(text):
             if v in allowed_q or v <= 1 or v in src_vals or v in calc_ok:
+                continue
+            if v == 2 and 1.0 in src_vals and re.search(r"2\s*(?:개|명|회|건|차례|가지|곳|종)\s*(?:이상|초과|부터)", text):
                 continue
             if scenario and _derivable(v, used_vals | allowed_q | calc_ok, scenario):
                 continue
