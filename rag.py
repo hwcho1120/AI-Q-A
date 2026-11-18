@@ -537,8 +537,8 @@ _DELEGATED = re.compile(r"위임|(?:따로|별도로|규칙으로|시장이|구�
 _APPLY_NEG = re.compile(r"해당하지|해당되지|적용되지|적용하지|충족하지|포함되지|속하지|대상이 아니")
 
 
-# 첫 절에서 이미 적극적 규정('~해야/할 수 있/규정되어 있...')을 답한 뒤 부수 항목이 없음을 적는 경우는 규정 부재에서 제외
-_AFFIRM_CLAUSE = re.compile(r"(?:하여야|해야|할\s*수\s*있|규정되어\s*있|적용되|부과|지급|지원|면제|감면|납부)")
+# 첫 절에서 이미 적극적 규정('~해야/정하고 있/규정되어 있...')을 답한 뒤 부수 항목이 없음을 적는 경우는 규정 부재에서 제외('정할 수 있' 위임 제외)
+_AFFIRM_CLAUSE = re.compile(r"(?:하여야|해야|(?<!정)할\s*수\s*있|정하고\s*있|정해져\s*있|규정되어\s*있|적용되|부과|지급|지원|면제|감면|납부)")
 
 
 def _claims_no_rule(out):
@@ -854,8 +854,9 @@ def answer(question, trace=None):
             drop(out, bad)
             verdict = "grounded_after_drop"
         elif verdict == "notGrounded" and config.USE_REPAIR and _time.time() - t_start < config.REPAIR_BUDGET_SEC:
-            # 결론 문장 자체가 문제 → 한 번만 고쳐 쓰기
-            out = _ask(REPAIR_SYSTEM, f"{user_msg}\n\n[직전 답변]\n{out['answer']}\n\n[검증 지적]\n{reason}", hits)
+            # 결론 문장 자체가 문제 → 한 번만 고쳐 쓰기 (검증 실패 건만 추론 ON)
+            out = _ask(REPAIR_SYSTEM, f"{user_msg}\n\n[직전 답변]\n{out['answer']}\n\n[검증 지적]\n{reason}",
+                       hits, effort=config.REPAIR_REASONING)
             trace["repair"] = out
             if out.get("basis") == "없음" or _claims_no_rule(out) or not out.get("found") or not out["sentences"]:
                 trace["stop"] = "repair_found_false"
