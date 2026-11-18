@@ -1,10 +1,10 @@
 <!doctype html>
-<html lang="ko">
+<html lang="ko" data-theme="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#f2f4f6">
-<script>try{document.documentElement.setAttribute("data-theme",localStorage.getItem("fl-theme")==="dark"?"dark":"light");}catch(e){document.documentElement.setAttribute("data-theme","light");}</script>
+<meta name="theme-color" content="#17171c">
+<script>try{document.documentElement.setAttribute("data-theme",localStorage.getItem("fl-theme")==="light"?"light":"dark");}catch(e){document.documentElement.setAttribute("data-theme","dark");}</script>
 <title>Fact Law - 궁금한 조례, 바로 물어보세요</title>
 <meta name="description" content="주차장·동물보호·자전거·도시공원·청년·금연 조례 6종에서 근거를 찾아 쉬운 말로 알려드려요.">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
@@ -26,7 +26,7 @@
   --r-lg: 20px;
   --r-md: 14px;
 }
-/* 다크 모드는 우측 상단 버튼으로만 켠다 (기본은 라이트) */
+/* 다크 모드가 기본. 우측 상단 버튼으로 라이트로 바꿀 수 있다 */
 :root[data-theme="dark"] {
   --bg: #17171c;
   --card: #202027;
@@ -59,6 +59,10 @@ button { font: inherit; color: inherit; letter-spacing: inherit; }
 .top { display: flex; align-items: center; justify-content: space-between; height: 64px; }
 .brand { background: none; border: 0; padding: 0; cursor: pointer; font-family: inherit; color: var(--ink); font-weight: 800; font-size: 20px; letter-spacing: -0.03em; }
 .brand em { font-style: normal; color: var(--blue); }
+.lead { display: flex; align-items: center; gap: 4px; margin-left: -8px; }
+.icon-btn { width: 44px; height: 44px; border-radius: 50%; border: 0; background: transparent; color: var(--ink); cursor: pointer; display: grid; place-items: center; }
+.icon-btn:hover { background: var(--card); }
+.icon-btn svg { width: 23px; height: 23px; }
 .tools { display: flex; align-items: center; gap: 8px; }
 .theme { width: 40px; height: 40px; border-radius: 50%; border: 0; background: transparent; color: var(--ink-2); cursor: pointer; display: grid; place-items: center; }
 .theme:hover { background: var(--card); color: var(--ink); }
@@ -74,10 +78,12 @@ button { font: inherit; color: inherit; letter-spacing: inherit; }
 .stage > #ask { order: 1; }
 .stage > .topics { order: 2; }
 .stage > .answer-area { order: 3; }
-.stage > .recent { order: 4; }
 .stage[data-state="result"] > .hero { display: none; }
-.stage[data-state="result"] > .answer-area { order: 2; margin-top: 24px; }
-.stage[data-state="result"] > .topics { order: 3; }
+.stage[data-state="result"] { min-height: calc(100vh - 150px); }
+.stage[data-state="result"] > .topics { display: none; }
+.stage[data-state="result"] > .answer-area { order: 2; margin-top: 4px; }
+/* 대화가 시작되면 입력창은 아래에 붙어 있고, 위로 질문과 답이 쌓인다 */
+.stage[data-state="result"] > #ask { order: 3; position: sticky; bottom: 0; margin-top: auto; z-index: 5; padding: 18px 0 calc(16px + env(safe-area-inset-bottom)); background: linear-gradient(to bottom, transparent, var(--bg) 24px); }
 .hero { text-align: center; padding-top: 24px; }
 .hero h1 { margin: 0; font-size: 30px; line-height: 1.35; font-weight: 800; letter-spacing: -0.035em; }
 .lede { margin: 12px 0 0; color: var(--ink-2); font-size: 16px; }
@@ -87,7 +93,7 @@ button { font: inherit; color: inherit; letter-spacing: inherit; }
 .ask-box:focus-within { box-shadow: 0 0 0 2px var(--blue); }
 .stage[data-state="result"] .ask-box { margin-top: 0; }
 .stage[data-state="result"] .kbd-hint { display: none; }
-.stage[data-state="result"] textarea { min-height: 72px; padding-bottom: 20px; }
+.stage[data-state="result"] textarea { min-height: 64px; padding-bottom: 20px; }
 textarea {
   display: block; width: 100%; resize: none; border: 0; outline: 0; background: transparent; color: var(--ink);
   font: inherit; font-size: 18px; line-height: 1.6; padding: 20px 72px 52px 22px; min-height: 104px; max-height: 200px; border-radius: var(--r-lg);
@@ -116,7 +122,6 @@ textarea::placeholder { color: var(--ink-3); }
 .chip-btn:hover { color: var(--ink); }
 .chip-btn[aria-pressed="true"] { background: var(--blue-soft); color: var(--blue); }
 .topics .rows { margin-top: 14px; }
-.block.recent h2, .row-head h2 { text-align: left; }
 .row-head h2 { margin: 0 0 8px; font-size: 14px; font-weight: 600; color: var(--ink-3); }
 .row-head { display: flex; align-items: baseline; justify-content: space-between; }
 .text-btn { background: none; border: 0; color: var(--ink-3); font-size: 13px; cursor: pointer; padding: 6px 4px; min-height: 32px; }
@@ -138,7 +143,8 @@ textarea::placeholder { color: var(--ink-3); }
 .rows .row .t { font-weight: 500; font-size: 15.5px; }
 
 /* 답변 영역 */
-.card { background: var(--card); border-radius: var(--r-lg); padding: 28px 24px; animation: rise .28s ease-out both; }
+.card + .card { margin-top: 16px; }
+.card { scroll-margin-top: 16px; background: var(--card); border-radius: var(--r-lg); padding: 28px 24px; animation: rise .28s ease-out both; }
 @keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 .q-label { display: flex; gap: 8px; align-items: flex-start; color: var(--ink-3); font-size: 14px; }
 .q-label b { flex: none; font-weight: 600; background: var(--fill); border-radius: 6px; padding: 1px 8px; }
@@ -167,7 +173,7 @@ li:last-child > .law-btn[aria-expanded="false"] { border-bottom: 0; }
 .foot-meta a { color: var(--blue); text-decoration: none; font-weight: 600; }
 .foot-meta a:hover { text-decoration: underline; }
 .btns { display: flex; gap: 8px; margin-top: 22px; }
-.btn { flex: 1; min-height: 52px; border-radius: var(--r-md); border: 0; font-weight: 700; font-size: 16px; cursor: pointer; }
+.btn { flex: none; padding: 0 20px; min-height: 46px; font-size: 15px; border-radius: var(--r-md); border: 0; font-weight: 700; font-size: 16px; cursor: pointer; }
 .btn.soft { background: var(--blue-soft); color: var(--blue); }
 .btn.soft:hover { filter: brightness(.97); }
 .btn.line { background: var(--fill); color: var(--ink-2); }
@@ -184,6 +190,29 @@ li:last-child > .law-btn[aria-expanded="false"] { border-bottom: 0; }
 .skel { height: 16px; border-radius: 8px; background: var(--fill); margin: 14px 0; animation: pulse 1.3s ease-in-out infinite; }
 .skel.s2 { width: 90%; } .skel.s3 { width: 64%; }
 @keyframes pulse { 50% { opacity: .5; } }
+
+/* 최근 질문 서랍 (왼쪽에서 밀려 나옴) */
+.scrim { position: fixed; inset: 0; z-index: 40; background: rgba(0, 0, 0, .34); opacity: 0; pointer-events: none; transition: opacity .22s; }
+.scrim.open { opacity: 1; pointer-events: auto; }
+.drawer {
+  position: fixed; z-index: 50; top: 0; bottom: 0; left: 0; width: min(88vw, 340px);
+  display: flex; flex-direction: column; background: var(--card); color: var(--ink);
+  transform: translateX(-102%); visibility: hidden;
+  transition: transform .26s cubic-bezier(.2, .8, .2, 1), visibility 0s linear .26s;
+  box-shadow: 0 0 40px rgba(0, 0, 0, .18);
+}
+.drawer.open { transform: none; visibility: visible; transition: transform .26s cubic-bezier(.2, .8, .2, 1), visibility 0s; }
+.drawer-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 12px 6px 22px; min-height: 64px; }
+.drawer-title { font-size: 18px; font-weight: 800; letter-spacing: -0.02em; }
+.new-btn { display: flex; align-items: center; gap: 10px; margin: 8px 16px 6px; padding: 0 16px; min-height: 52px; border: 0; border-radius: var(--r-md); background: var(--blue-soft); color: var(--blue); font-size: 16px; font-weight: 700; cursor: pointer; }
+.new-btn svg { width: 19px; height: 19px; }
+.drawer-list { list-style: none; margin: 8px 0 0; padding: 0 10px; overflow-y: auto; flex: 1; scrollbar-width: none; }
+.drawer-list::-webkit-scrollbar { display: none; }
+.drawer-list button { display: block; width: 100%; text-align: left; border: 0; background: transparent; color: var(--ink); border-radius: 12px; padding: 13px 12px; font-size: 15.5px; line-height: 1.5; cursor: pointer; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.drawer-list button:hover { background: var(--fill); }
+.drawer-empty { margin: 28px 22px; font-size: 15px; color: var(--ink-3); line-height: 1.7; }
+.drawer-foot { padding: 8px 18px 18px; border-top: 1px solid var(--line); }
+@media (prefers-reduced-motion: reduce) { .drawer, .scrim { transition: none; } }
 
 footer { margin: 12px 0 48px; padding: 20px 4px 0; font-size: 12.5px; line-height: 1.7; color: var(--ink-3); }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
@@ -205,7 +234,7 @@ footer { margin: 12px 0 48px; padding: 20px 4px 0; font-size: 12.5px; line-heigh
   .hero h1 { font-size: 44px; line-height: 1.3; }
   .lede { font-size: 18px; }
   textarea { font-size: 19px; min-height: 112px; }
-  .stage[data-state="result"] textarea { padding-top: 22px; padding-bottom: 22px; }
+  .stage[data-state="result"] textarea { padding-top: 20px; padding-bottom: 20px; min-height: 68px; }
   .ask-box { margin-top: 36px; }
   .card { padding: 40px 40px; }
   .headline { font-size: 30px; }
@@ -226,7 +255,12 @@ footer { margin: 12px 0 48px; padding: 20px 4px 0; font-size: 12.5px; line-heigh
 <body>
 <div class="app">
   <header class="top">
-    <button class="brand" id="home" type="button" aria-label="처음 화면으로">Fact <em>Law</em></button>
+    <div class="lead">
+      <button class="icon-btn" id="menu" type="button" aria-label="지난 대화 열기" aria-expanded="false" aria-controls="drawer">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      </button>
+      <button class="brand" id="home" type="button" aria-label="새 질문 시작하기">Fact <em>Law</em></button>
+    </div>
     <div class="tools">
       <span class="chip">2026.10.1 기준</span>
       <button class="theme" id="theme" type="button" aria-label="다크 모드로 바꾸기" title="화면 모드 바꾸기">
@@ -260,11 +294,6 @@ footer { margin: 12px 0 48px; padding: 20px 4px 0; font-size: 12.5px; line-heigh
     </section>
 
     <section class="answer-area" aria-live="polite" aria-label="답변"><div id="result"></div></section>
-
-    <section class="block recent" id="recent-wrap" hidden>
-      <div class="row-head"><h2>최근 질문</h2><button class="text-btn" id="clear" type="button">지우기</button></div>
-      <ul class="rows" id="recent"></ul>
-    </section>
   </main>
 
   <footer>
@@ -273,6 +302,23 @@ footer { margin: 12px 0 48px; padding: 20px 4px 0; font-size: 12.5px; line-heigh
     <br>Fact Law
   </footer>
 </div>
+
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer" aria-label="지난 대화" aria-hidden="true" inert>
+  <div class="drawer-head">
+    <span class="drawer-title">지난 대화</span>
+    <button class="icon-btn" id="menu-close" type="button" aria-label="닫기">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+  </div>
+  <button class="new-btn" id="new-q" type="button">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+    새 질문하기
+  </button>
+  <ul class="drawer-list" id="recent"></ul>
+  <p class="drawer-empty" id="recent-empty">아직 대화가 없어요.<br>궁금한 걸 물어보면 여기에 쌓여요.</p>
+  <div class="drawer-foot" id="recent-foot"><button class="text-btn" id="clear" type="button">기록 지우기</button></div>
+</aside>
 
 <script>
 (function () {
@@ -304,7 +350,8 @@ footer { margin: 12px 0 48px; padding: 20px 4px 0; font-size: 12.5px; line-heigh
       "서울시 도시공원에서 담배를 피우면 어떻게 되나요?",
       "서울시 금연지도원의 임기는 얼마인가요?" ] }
   ];
-  var STORE = "seoul-jorye-history-v2", MAX_HISTORY = 8, TIMEOUT_MS = 90000;
+  var MAX_SESSIONS = 10, MAX_TURNS = 12, TIMEOUT_MS = 90000;
+  var PH_HOME = "예) 65세인데 서울대공원 동물원 입장료 면제되나요?", PH_FOLLOW = "이어서 궁금한 점을 물어보세요";
 
   var $ = function (id) { return document.getElementById(id); };
   var qEl = $("q"), sendEl = $("send"), resultEl = $("result");
@@ -312,8 +359,18 @@ footer { margin: 12px 0 48px; padding: 20px 4px 0; font-size: 12.5px; line-heigh
 
   function el(tag, cls, text) { var n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; }
   function shortLabel(l) { return l.replace(/^서울특별시\s*/, ""); }
-  function lsGet() { try { return JSON.parse(localStorage.getItem(STORE) || "[]"); } catch (e) { return []; } }
-  function lsSet(v) { try { localStorage.setItem(STORE, JSON.stringify(v)); } catch (e) { /* 저장 못 해도 동작에는 문제없음 */ } }
+  /* 대화(세션) 저장: 질문 하나씩 저장하던 예전 형식도 불러와서 세션으로 바꾼다 */
+  var STORE = "seoul-jorye-sessions-v3", OLD_STORE = "seoul-jorye-history-v2";
+  function newSessionObj() { return { id: Date.now(), title: "", turns: [] }; }
+  function loadSessions() {
+    try {
+      var v = JSON.parse(localStorage.getItem(STORE) || "null");
+      if (v && v.length !== undefined) return v;
+      return JSON.parse(localStorage.getItem(OLD_STORE) || "[]").map(function (x, i) { return { id: Date.now() - i, title: x.q, turns: [{ q: x.q, r: x.r }] }; });
+    } catch (e) { return []; }
+  }
+  function saveSessions() { try { localStorage.setItem(STORE, JSON.stringify(sessions.slice(0, MAX_SESSIONS))); } catch (e) { /* 저장 못 해도 동작에는 문제없음 */ } }
+  var sessions = loadSessions(), cur = newSessionObj();
   function autosize() { qEl.style.height = "auto"; qEl.style.height = Math.min(qEl.scrollHeight, 200) + "px"; }
   function isWide() { return window.matchMedia("(min-width: 1024px)").matches; }
 
@@ -337,8 +394,6 @@ footer { margin: 12px 0 48px; padding: 20px 4px 0; font-size: 12.5px; line-heigh
     chipsEl.appendChild(b);
   });
   pickTopic(0);
-  function goHome() { stage.dataset.state = "home"; resultEl.textContent = ""; window.scrollTo({ top: 0, behavior: "smooth" }); }
-  $("home").addEventListener("click", goHome);
 
   /* ---------- 답변 그리기 ---------- */
   function splitAnswer(text) {
@@ -427,19 +482,12 @@ footer { margin: 12px 0 48px; padding: 20px 4px 0; font-size: 12.5px; line-heigh
   }
 
   function buttons(card, copyText) {
-    var row = el("div", "btns");
-    if (copyText) {
-      var cp = el("button", "btn soft", "답변 복사하기"); cp.type = "button";
-      cp.addEventListener("click", function () {
-        var ok = function () { cp.textContent = "복사했어요"; setTimeout(function () { cp.textContent = "답변 복사하기"; }, 1800); };
-        if (navigator.clipboard) navigator.clipboard.writeText(copyText).then(ok, function () {});
-      });
-      row.appendChild(cp);
-    }
-    var again = el("button", "btn line", "다른 질문하기"); again.type = "button";
-    again.addEventListener("click", function () { window.scrollTo({ top: 0, behavior: "smooth" }); qEl.focus(); qEl.select(); });
-    row.appendChild(again);
-    card.appendChild(row);
+    var row = el("div", "btns"), cp = el("button", "btn soft", "답변 복사하기"); cp.type = "button";
+    cp.addEventListener("click", function () {
+      var ok = function () { cp.textContent = "복사했어요"; setTimeout(function () { cp.textContent = "답변 복사하기"; }, 1800); };
+      if (navigator.clipboard) navigator.clipboard.writeText(copyText).then(ok, function () {});
+    });
+    row.appendChild(cp); card.appendChild(row);
   }
 
   function fillAnswer(card, r) {
@@ -453,7 +501,6 @@ footer { margin: 12px 0 48px; padding: 20px 4px 0; font-size: 12.5px; line-heigh
       ["대상이나 상황을 넣어 보세요. 예) 65세, 경차, 장애인", "장소를 구체적으로 적어 보세요. 예) 공영주차장, 어린이공원", "알고 싶은 것을 분명하게 적어 보세요. 예) 금액, 기간, 가능 여부"]
         .forEach(function (t) { ul.appendChild(el("li", null, t)); });
       tips.appendChild(ul); card.appendChild(tips);
-      buttons(card, null);
       return;
     }
     var parts = splitAnswer(r.answer);
@@ -469,54 +516,95 @@ footer { margin: 12px 0 48px; padding: 20px 4px 0; font-size: 12.5px; line-heigh
     buttons(card, r.answer + "\n\n근거: " + r.citation.map(shortLabel).join(", ") + (r.source_url ? "\n원문: " + r.source_url : ""));
   }
 
-  function show(card) {
-    stage.dataset.state = "result"; resultEl.textContent = ""; resultEl.appendChild(card);
-    if (!isWide()) card.scrollIntoView({ block: "start", behavior: "smooth" });
+  /* ---------- 대화 ---------- */
+  function startNew() {                      // 새 세션: 추천 질문이 다시 보인다
+    cur = newSessionObj();
+    stage.dataset.state = "home"; resultEl.textContent = "";
+    qEl.value = ""; qEl.placeholder = PH_HOME; autosize();
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
+  function openSession(s) {
+    cur = s; stage.dataset.state = "result"; qEl.placeholder = PH_FOLLOW; resultEl.textContent = "";
+    s.turns.forEach(function (t) { var c = cardShell(t.q); c.style.animation = "none"; fillAnswer(c, t.r); resultEl.appendChild(c); });
+    var last = resultEl.lastChild; if (last) last.scrollIntoView({ block: "start" });
+  }
+  $("home").addEventListener("click", startNew);
 
-  /* ---------- 질문 보내기 ---------- */
   function submit() {
     var q = qEl.value.trim();
     if (!q || busy) return;
     busy = true; sendEl.disabled = true;
-    var card = cardShell(q);
-    var status = el("p", "status", "조례에서 관련 조항을 찾고 있어요");
-    card.appendChild(status);
+    var session = cur, follow = session.turns.length > 0;     // 앞 대화가 있으면 이어진 질문
+    qEl.value = ""; autosize();
+    stage.dataset.state = "result"; qEl.placeholder = PH_FOLLOW;
+
+    var card = cardShell(q), status = el("p", "status", follow ? "앞 대화를 참고해서 찾고 있어요" : "조례에서 관련 조항을 찾고 있어요");
+    card.classList.add("loading"); card.appendChild(status);
     ["", "s2", "s3"].forEach(function (c) { card.appendChild(el("div", "skel " + c)); });
-    show(card);
+    resultEl.appendChild(card);
+    card.scrollIntoView({ block: "start", behavior: "smooth" });
     var t2 = setTimeout(function () { status.textContent = "찾은 조항으로 답을 정리하고 있어요"; }, 2500);
     var t3 = setTimeout(function () { status.textContent = "조금 더 걸리고 있어요. 잠시만요"; }, 12000);
     var ctl = new AbortController(), kill = setTimeout(function () { ctl.abort(); }, TIMEOUT_MS);
 
-    fetch("/ask", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question: q }), signal: ctl.signal })
+    var body = follow
+      ? { question: q, history: session.turns.slice(-3).map(function (t) { return { q: t.q, a: (t.r && t.r.answer) || "", c: (t.r && t.r.citation) || [] }; }) }
+      : { question: q };
+    function swap(c) { if (card.parentNode === resultEl) resultEl.replaceChild(c, card); }
+
+    fetch(follow ? "/chat" : "/ask", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: ctl.signal })
       .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
       .then(function (r) {
-        var c = cardShell(q); fillAnswer(c, r); resultEl.textContent = ""; resultEl.appendChild(c);
-        var h = lsGet().filter(function (x) { return x.q !== q; });
-        h.unshift({ q: q, r: r }); lsSet(h.slice(0, MAX_HISTORY)); renderRecent();
+        var c = cardShell(q); fillAnswer(c, r); swap(c);
+        session.turns.push({ q: q, r: r });
+        if (session.turns.length > MAX_TURNS) session.turns.shift();
+        if (!session.title) session.title = q;
+        if (sessions.indexOf(session) < 0) sessions.unshift(session);
+        saveSessions();
       })
       .catch(function () {
         var c = cardShell(q);
         c.appendChild(el("div", "nf-icon", "!"));
         c.appendChild(el("p", "headline", "답을 가져오지 못했어요"));
         c.appendChild(el("p", "body-text", "잠시 후 같은 질문을 다시 해 주세요."));
-        buttons(c, null); resultEl.textContent = ""; resultEl.appendChild(c);
+        swap(c);
+        if (cur === session) { qEl.value = q; autosize(); }      // 다시 보낼 수 있게 질문을 되돌려 둔다
       })
       .then(function () { clearTimeout(t2); clearTimeout(t3); clearTimeout(kill); busy = false; sendEl.disabled = false; });
   }
 
-  /* ---------- 최근 질문 ---------- */
+  /* ---------- 지난 대화 (왼쪽 서랍) ---------- */
+  var drawer = $("drawer"), scrim = $("scrim"), menuBtn = $("menu");
+  function openDrawer() {
+    renderRecent();
+    drawer.removeAttribute("inert"); drawer.setAttribute("aria-hidden", "false");
+    drawer.classList.add("open"); scrim.classList.add("open");
+    menuBtn.setAttribute("aria-expanded", "true");
+    document.body.style.overflow = "hidden";
+    setTimeout(function () { $("menu-close").focus(); }, 60);
+  }
+  function closeDrawer(restoreFocus) {
+    drawer.classList.remove("open"); scrim.classList.remove("open");
+    drawer.setAttribute("inert", ""); drawer.setAttribute("aria-hidden", "true");
+    menuBtn.setAttribute("aria-expanded", "false");
+    document.body.style.overflow = "";
+    if (restoreFocus !== false) menuBtn.focus();
+  }
   function renderRecent() {
-    var h = lsGet(), ul = $("recent");
-    ul.textContent = ""; $("recent-wrap").hidden = h.length === 0;
-    h.forEach(function (x) {
-      var li = el("li"), b = el("button", "row"), s = el("span", "t", x.q);
-      b.type = "button"; b.appendChild(s); b.appendChild(el("span", "chev"));
-      b.addEventListener("click", function () { var c = cardShell(x.q); fillAnswer(c, x.r); show(c); });
+    var ul = $("recent"); ul.textContent = "";
+    $("recent-empty").hidden = sessions.length > 0; $("recent-foot").hidden = sessions.length === 0;
+    sessions.forEach(function (s) {
+      var li = el("li"), b = el("button", null, s.title); b.type = "button"; b.title = s.title;
+      b.addEventListener("click", function () { openSession(s); closeDrawer(false); });
       li.appendChild(b); ul.appendChild(li);
     });
   }
-  $("clear").addEventListener("click", function () { lsSet([]); renderRecent(); });
+  menuBtn.addEventListener("click", openDrawer);
+  $("menu-close").addEventListener("click", function () { closeDrawer(); });
+  scrim.addEventListener("click", function () { closeDrawer(); });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape" && drawer.classList.contains("open")) closeDrawer(); });
+  $("new-q").addEventListener("click", function () { closeDrawer(false); startNew(); qEl.focus(); });
+  $("clear").addEventListener("click", function () { sessions = []; saveSessions(); renderRecent(); });
 
   /* ---------- 입력 ---------- */
   $("ask").addEventListener("submit", function (e) { e.preventDefault(); submit(); });
@@ -525,14 +613,14 @@ footer { margin: 12px 0 48px; padding: 20px 4px 0; font-size: 12.5px; line-heigh
     // 한글 조합 중 Enter는 글자 확정이므로 전송하지 않는다
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); submit(); }
   });
-  /* ---------- 화면 모드 (기본 라이트, 해/달 버튼) ---------- */
+  /* ---------- 화면 모드 (기본 다크, 해/달 버튼) ---------- */
   var themeBtn = $("theme"), root = document.documentElement, metaTheme = document.querySelector('meta[name="theme-color"]');
   function applyTheme(t) {
     root.setAttribute("data-theme", t);
     themeBtn.setAttribute("aria-label", t === "dark" ? "라이트 모드로 바꾸기" : "다크 모드로 바꾸기");
     if (metaTheme) metaTheme.setAttribute("content", t === "dark" ? "#17171c" : "#f2f4f6");
   }
-  applyTheme(root.getAttribute("data-theme") === "dark" ? "dark" : "light");
+  applyTheme(root.getAttribute("data-theme") === "light" ? "light" : "dark");
   themeBtn.addEventListener("click", function () {
     var next = root.getAttribute("data-theme") === "dark" ? "light" : "dark";
     applyTheme(next);

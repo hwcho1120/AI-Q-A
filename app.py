@@ -25,6 +25,17 @@ class Ask(BaseModel):
     question: str
 
 
+class Turn(BaseModel):
+    q: str
+    a: str = ""
+    c: list[str] = []
+
+
+class Chat(BaseModel):
+    question: str
+    history: list[Turn] = []
+
+
 @app.get("/health")
 def health():
     return {"ok": True, "chunk_unit": config.CHUNK_UNIT, "verify": config.USE_VERIFY}
@@ -38,6 +49,23 @@ async def ask(req: Ask):
     except Exception as e:  # noqa: BLE001  시간 초과·API 오류 모두 '확인 불가'로 응답
         log.warning("ask failed: %r", e)
         return dict(rag.UNKNOWN)
+
+
+def _chat(req: Chat):
+    """이어진 질문: 앞 대화를 참고해 질문을 독립된 문장으로 다시 쓴 뒤, 같은 엔진(rag.answer)으로 답한다."""
+    standalone = rag.condense(req.question, [t.model_dump() for t in req.history[-3:]])
+    out = rag.answer(standalone)
+    return {**out, "standalone": standalone}
+
+
+@app.post("/chat")
+async def chat(req: Chat):
+    """화면용 엔드포인트. 채점용 /ask 와 별개이며, 응답은 /ask 의 4개 필드에 standalone(다시 쓴 질문)이 더해진다."""
+    try:
+        return await asyncio.wait_for(asyncio.to_thread(_chat, req), timeout=config.ANSWER_TIMEOUT_SEC)
+    except Exception as e:  # noqa: BLE001  시간 초과·API 오류 모두 '확인 불가'로 응답
+        log.warning("chat failed: %r", e)
+        return {**rag.UNKNOWN, "standalone": req.question}
 
 
 # ------------------------------------------------------------ 시민용 화면 (채점 API와 별개)

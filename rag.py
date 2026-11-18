@@ -194,6 +194,31 @@ def _annex_refs(hit, labels):
     return out
 
 
+CONDENSE_PROMPT = """서울시 조례 질의응답 대화다. [마지막 질문]이 앞 대화를 가리키는 말('그러면', '그럼', '그건', '거기', '장애인이면' 처럼 대상이 빠진 표현)을 담고 있으면,
+이전 대화의 대상·장소·조건을 채워서 혼자 읽어도 뜻이 통하는 한 문장 질문으로 바꿔라.
+- 마지막 질문이 이미 혼자서 뜻이 통하거나 화제가 바뀌었으면 원문 그대로 둔다.
+- 답을 추측하거나 앞 대화에 없는 정보를 지어내지 않는다.
+- 질문 한 문장만 출력한다. 설명이나 따옴표는 붙이지 않는다."""
+
+
+def condense(question, history):
+    """이어진 질문을 앞 대화를 참고해 독립된 질문으로 다시 쓴다. 실패하면 원문 그대로 쓴다."""
+    if not history:
+        return question
+    try:
+        import upstage
+        parts = []
+        for t in history[-3:]:
+            cites = ", ".join(c.replace("서울특별시 ", "") for c in (t.get("c") or [])[:3])
+            parts.append(f"질문: {t.get('q', '')}\n답변: {(t.get('a') or '')[:200]}" + (f"\n근거: {cites}" if cites else ""))
+        prompt = "[이전 대화]\n" + "\n\n".join(parts) + f"\n\n[마지막 질문]\n{question}"
+        out = upstage.chat([{"role": "system", "content": CONDENSE_PROMPT},
+                            {"role": "user", "content": prompt}]).strip().splitlines()
+        return (out[0].strip()[:200] if out else "") or question
+    except Exception:  # noqa: BLE001
+        return question
+
+
 def answer(question, trace=None):
     """trace: dict를 넘기면 어느 단계에서 끝났는지(stage)와 중간값을 기록합니다 (디버깅·측정용)."""
     import upstage
