@@ -27,6 +27,7 @@ async def lifespan(_app: FastAPI):
     try:
         rag._load()
         rag._links()
+        rag._rev_refs()
         log.info("RAG index warmed up (unit=%s)", config.CHUNK_UNIT)
     except Exception as e:  # noqa: BLE001
         log.warning("warmup failed: %r", e)

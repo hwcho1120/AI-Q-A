@@ -125,7 +125,10 @@ _GROUND_SYSTEM = """너는 답변 검증기다. [질문]에 대한 [답변]이 [
 - notGrounded: 핵심 사실 중 근거와 모순되거나 근거에 전혀 없는 것(지어낸 숫자·조건·결론)이 있다.
 - notSure: 판단하기 애매하다.
 - 답변의 결론(네/아니요, 가능/불가, 면제/부과)이 근거를 적용한 결과와 반대이면 notGrounded.
-  특히 '다만'·괄호 단서가 범위를 넓히는지(포함) 좁히는지(제외) 확인하고, 단서를 거꾸로 읽은 결론은 notGrounded.
+  · 특히 '다만'·괄호 단서가 범위를 넓히는지(포함) 좁히는지(제외) 확인하고, 단서를 거꾸로 읽은 결론은 notGrounded.
+  · 법령의 '다만, X의 경우는 그러하지 아니하다'는 앞 문장 전체의 주된 서술어('~하여야 한다', '~하지 못한다', '~면하지 못한다')를 정반대로 뒤집는다(중간 '제외하고는' 절만 뒤집는 것이 아니다). 예: 'A를 증명한 경우를 제외하고는 책임을 면하지 못한다. 다만, X의 경우는 그러하지 아니하다' → 주된 서술어('책임을 면하지 못한다')를 부정하므로 X의 경우에는 A 입증과 무관하게 '책임을 면한다(책임을 지지 않는다)'. 이를 반대로 해석한 결론은 반드시 notGrounded.
+  · '~하여야 한다'(의무)와 '~할 수 있다'(재량)를 뒤바꾼 결론, 경계값('이상·이하·이내'는 포함, '초과·미만'은 제외; 예: '6세 미만' 면제에 10세 적용)을 틀린 결론, 시작일 포함 기간 기산(예: 6월 1일부터 7일 이상 → 7일째인 6월 7일)을 틀린 결론도 반드시 notGrounded.
+  · 조문이 지원 항목·대상을 한정 열거했는데 '절차·방법 위임' 조항을 들어 열거된 항목 외 추가 지원이 가능할 수 있다고 추측해 결론을 뒤집은 경우도 notGrounded.
 - 답변이 질문의 장소·대상에 어떤 규정이 적용된다고 말하는데, 그 장소·대상이 근거 조항의 적용 범위(지정 대상 목록 등)에 적혀 있지 않으면 notGrounded.
 다음은 근거에 없는 사실로 보지 않는다:
 - 질문에 나온 대상(장소·사람·상황)을 답변에서 그대로 언급하는 것. 예) 질문의 '어린이공원'에 근거의 '금주구역 지정 대상 공원' 규정을 적용
@@ -142,10 +145,10 @@ _GROUND_SCHEMA = {
         "schema": {
             "type": "object",
             "properties": {
-                "verdict": {"type": "string", "enum": ["grounded", "notGrounded", "notSure"]},
                 "reason": {"type": "string"},
+                "verdict": {"type": "string", "enum": ["grounded", "notGrounded", "notSure"]},
             },
-            "required": ["verdict", "reason"],
+            "required": ["reason", "verdict"],
             "additionalProperties": False,
         },
     },
@@ -172,11 +175,11 @@ _GROUND_SENT_SCHEMA = {
         "schema": {
             "type": "object",
             "properties": {
-                "verdict": {"type": "string", "enum": ["grounded", "notGrounded", "notSure"]},
-                "unsupported": {"type": "array", "items": {"type": "integer"}},
                 "reason": {"type": "string"},
+                "unsupported": {"type": "array", "items": {"type": "integer"}},
+                "verdict": {"type": "string", "enum": ["grounded", "notGrounded", "notSure"]},
             },
-            "required": ["verdict", "unsupported", "reason"],
+            "required": ["reason", "unsupported", "verdict"],
             "additionalProperties": False,
         },
     },
@@ -186,10 +189,13 @@ _GROUND_SENT_SCHEMA = {
 def groundedness_sentences(context, sentences, question="", prefix=""):
     """문장 번호를 붙여 검증하고, 근거 없는 문장 번호(0부터)를 함께 돌려줍니다: (verdict, reason, [idx...])
 
-    문장 단위로 알려 주면, 결론 문장이 멀쩡할 때 코드가 문제 문장만 지울 수 있습니다(전체 재작성 불필요).
+    reason을 먼저 써서 단서·이중부정·경계값·의무/재량을 단계적으로 대조한 뒤 verdict를 확정합니다.
     """
     numbered = "\n".join(f"[{i}] {(prefix if i == 1 else '') + t}" for i, t in enumerate(sentences, 1))
-    sys_msg = _GROUND_SYSTEM + "\nunsupported에는 근거에 없는 사실이 들어 있는 문장의 번호([n])를 모두 넣는다. 없으면 빈 배열."
+    sys_msg = (_GROUND_SYSTEM +
+               "\n먼저 reason에 결론의 방향(단서·이중부정·경계값·의무/재량)과 각 문장의 근거 대조 결과를 1~3문장으로 쓴 뒤, "
+               "unsupported에 근거와 어긋나거나 근거에 없는 사실이 있는 문장 번호([n])를 모두 넣고(없으면 빈 배열), "
+               "마지막에 verdict를 판정한다.")
     try:
         raw = chat([{"role": "system", "content": sys_msg},
                     {"role": "user", "content": f"[근거]\n{context}\n\n[질문]\n{question}\n\n[답변 문장]\n{numbered}"}],
