@@ -17,14 +17,6 @@ import config
 
 UNKNOWN = {"answer": "확인 불가", "citation": [], "source_url": "", "effective_date": ""}
 DISTRICT = re.compile(r"서울특별시\s*\S+구\s")      # 'OO구' 자치구 조례 인용 방지
-NAMED_LOCAL_GOV_PAT = re.compile(
-    r"(?:강남|서초|송파|마포|성동|영등포|종로|용산|광진|동대문|중랑|성북|강북|도봉|노원|은평|서대문|양천|강서|구로|금천|동작|관악|강동)구"
-    r"|(?:서울(?:특별시)?\s*|(?<=[\s,]))중구(?=[에의에서을를은는도과와,\s])"
-    r"|수원시|성남시|고양시|용인시|부산시|인천시|대구시|대전시|광주시|울산시|세종시"
-)
-EXT_HARD_TRAP_PAT = re.compile(
-    r"PC방|피시방|노래방|당구장|운전면허\s*벌점|면허\s*벌점|\b징역|징역형?|범칙금|형사\s*처벌|검찰|경찰(?:청|서|관|에)|법원(?:\s|을|에|의)"
-)
 
 _cache = {}
 
@@ -809,8 +801,8 @@ def answer(question, trace=None):
     if trace is None:
         trace = {}
     t_start = _time.time()
-    if config.USE_VERIFY and (NAMED_LOCAL_GOV_PAT.search(question) or EXT_HARD_TRAP_PAT.search(question)):
-        trace["stop"] = "min_score"
+    if not question or not str(question).strip():
+        trace["stop"] = "empty"
         return dict(UNKNOWN)
     queries = rewrite_queries(question)
     trace["queries"] = queries
