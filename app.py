@@ -41,6 +41,12 @@ try:  # 시연 화면(/, /api/*). 실패해도 채점용 /ask 는 그대로 동�
 except Exception as _e:  # noqa: BLE001
     log.warning("UI disabled: %r", _e)
 
+try:  # Fact Law 시민용 화면(/factlaw)과 이어진 질문 API(/api/chat). 실패해도 /ask 는 그대로 동작합니다.
+    import factlaw_ui
+    app.include_router(factlaw_ui.router)
+except Exception as _e:  # noqa: BLE001
+    log.warning("Fact Law UI disabled: %r", _e)
+
 
 @app.exception_handler(RequestValidationError)
 async def bad_request(request: Request, exc: RequestValidationError):
