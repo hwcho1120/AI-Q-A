@@ -47,6 +47,10 @@ def run_one(q):
         alts = [a for g in q["gold"] for a in g]
         strict = [any(match(c, a) == 1.0 for a in alts) for c in cites]
         prec = sum(strict) / len(cites) if cites and ok90 else 0.0
+        # 운영진 최종 공지: 인용 수가 정답 근거 수 + 2를 넘으면 넘친 비율만큼 감점
+        cap = len(q["gold"]) + 2
+        row["over_cite"] = len(cites) > cap
+        row["official"] = rec * (cap / len(cites) if len(cites) > cap else 1.0)
         row.update(recall=rec, precision=prec,
                    f1=2 * prec * rec / (prec + rec) if prec + rec else 0.0,
                    exact=float(prec == 1.0 and rec == 1.0))
@@ -65,6 +69,11 @@ def summary(rows):
     return {
         "n": len(rows), "n_general": len(g), "n_trap": len(t),
         "recall": avg([r["recall"] for r in g]),
+        "official": avg([r.get("official", r["recall"]) for r in g]),
+        "over_cite": sum(bool(r.get("over_cite")) for r in g),
+        # 위임형을 '확인 불가'로 라벨링한 회색지대 함정은 운영진 최종 공지(위임 조항 인용이 정답)와 충돌 → 따로 집계
+        "trap_ok_strict": int(sum(r["trap_ok"] for r in t if "회색지대" not in (r.get("type") or ""))),
+        "n_trap_strict": sum("회색지대" not in (r.get("type") or "") for r in t),
         "precision": avg([r["precision"] for r in g]),
         "f1": avg([r["f1"] for r in g]),
         "exact": avg([r["exact"] for r in g]),
@@ -92,7 +101,12 @@ def table(named):
     row("답변 정답률 (CORRECT / +PARTIAL)",
         lambda x: f"{pct(x['correct'], x['n_general'])} / {pct(x['correct'] + x['partial'], x['n_general'])}"
                   f" ({x['correct']} 정답 · {x['partial']} 부분)")
+    row("공식 근거 점수 (초과 인용 감점 반영)",
+        lambda x: f"{x.get('official', x['recall']):.4f} (초과 인용 {x.get('over_cite', '-')}문항)")
     row("함정 방어율", lambda x: f"{pct(x['trap_ok'], x['n_trap'])} ({x['trap_ok']}/{x['n_trap']})")
+    row("함정 방어율 (회색지대 위임형 제외)",
+        lambda x: f"{pct(x.get('trap_ok_strict', 0), x.get('n_trap_strict', 0))} "
+                  f"({x.get('trap_ok_strict', '-')}/{x.get('n_trap_strict', '-')})")
     row("과잉 확인 불가 (false_refusal)",
         lambda x: f"{x['false_refusal']}건 ({pct(x['false_refusal'], x['n_general'])})")
     row("평균 / 90%구간 / 최대 시간", lambda x: f"{x['avg_sec']:.2f}s / {x['p90_sec']:.2f}s / {x['max_sec']:.2f}s")

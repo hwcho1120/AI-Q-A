@@ -53,6 +53,9 @@ REWRITE_WEIGHT = 0.95         # 재작성 질문 점수에 곱하는 값 (원 �
 SIBLING_FROM_TOP = 3          # 상위 몇 개 근거에 대해 같은 조의 다른 항을 덧붙일지
 MAX_CONTEXT = 16              # LLM에 넘기는 근거 최대 개수 (검색 top_k + 참조 조항 + 형제 항)
 CITE_ANNEX_PARENT = os.environ.get("CITE_ANNEX_PARENT", "1") == "1"   # 별표 인용 시 그 별표를 정한 본문 조항도 인용
+# 모델이 '근거 없음'으로 매겼어도 고른 조항이 위임·준용 조항이고 답이 그 위임을 안내하면 답을 살림.
+# TestSet3 A/B(11/19): 켜면 가상 세부 규정 함정(예: 놀이터 체온 카메라 오차)이 인접 위임 조항으로 14건 새어 기본 끔.
+KEEP_DELEGATION_ANSWER = os.environ.get("KEEP_DELEGATION_ANSWER", "0") == "1"
 # 인용한 항이 같은 조의 다른 항을 가리키면("제1항에 따라") 그 항도 인용.
 # 1,200문항 측정 결과 Recall 개선은 미미(TS3 +0.0024)하고 Precision(-0.065~-0.072)·Exact Match(-10%p) 손실이 커 기본 OFF.
 CITE_SIBLING_REFS = os.environ.get("CITE_SIBLING_REFS", "0") == "1"

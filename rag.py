@@ -17,6 +17,40 @@ import config
 
 UNKNOWN = {"answer": "확인 불가", "citation": [], "source_url": "", "effective_date": ""}
 DISTRICT = re.compile(r"서울특별시\s*\S+구\s")      # 'OO구' 자치구 조례 인용 방지
+# 자치구·다른 시가 '운영·제정하는 대상'을 직접 묻는 질문: "강남구 공영주차장 요금", "마포구 조례", "부산시 주차요금".
+# 지역명 바로 뒤에 시설·조례·요금 같은 대상이 붙을 때만 잡습니다. "마포구에 사는 청년인데 서울시 조례…"처럼
+# 거주지만 밝힌 질문은 통과합니다. (운영진 공지: 자치구·다른 시도 조례를 묻는 질문은 확인 불가)
+_GU = (r"강남|서초|송파|마포|성동|영등포|종로|용산|광진|동대문|중랑|성북|강북|도봉|노원|은평|서대문|양천|강서|구로"
+       r"|금천|동작|관악|강동|중")
+_OTHER_CITY = r"부산|인천|대구|대전|광주|울산|세종|수원|성남|고양|용인|부천|안산|안양|화성|청주|전주|창원|천안|제주"
+DISTRICT_OWNED = re.compile(
+    rf"(?<![가-힣])(?:(?:{_GU})구(?:청)?|(?:{_OTHER_CITY})(?:광역|특별자치)?시)\s*"
+    r"(?:의|에서\s*(?:운영|관리)하는|이\s*(?:운영|관리)하는|가\s*(?:운영|관리)하는|에\s*있는|내|소재|관내)?\s*"
+    r"(?:구립|구영|시립|자체)?\s*"
+    r"(?:공영\s*)?(?:노상|노외)?\s*(?:반려견\s*)?"
+    r"(?:주차장|주차\s*요금|공원|놀이터|보호센터|보호소|조례|규칙|과태료|감면|수수료|이용료|요금|지원금|보조금)"
+    r"|(?<![가-힣])(?:구립|구영)\s*(?:공원|주차장|놀이터|시설)")
+# 어순이 바뀐 경우("공영주차장 요금 알려줘 강남구"): 지역명이 거주·출신 표현 없이 쓰이고, 시설·요금 단어가 있고,
+# 서울시를 따로 언급하지 않으면 자치구·다른 시 대상을 묻는 것으로 봅니다.
+_REGION = re.compile(rf"(?<![가-힣])(?:(?:{_GU})구(?:청)?|(?:{_OTHER_CITY})(?:광역|특별자치)?시)"
+                     r"(?!\s*(?:에\s*(?:사는|살|거주)|에서\s*(?:살|이사|왔|온)|민|주민|거주))")
+_TARGET = re.compile(r"주차장|주차\s*요금|공원|놀이터|보호센터|보호소|조례|규칙|과태료|감면|수수료|이용료|요금|지원금|보조금"
+                     r"|운영\s*시간")
+_SEOUL = re.compile(r"서울\s*(?:특별)?시|서울시|시\s*조례")
+
+
+# '구' 없이 쓴 지역명("송파 공영주차장", "강남 쪽 공영주차장")과 "우리 구". '중'은 흔한 글자라 제외합니다.
+_GU_BARE = re.compile(
+    rf"(?<![가-힣])(?:{_GU.replace('|중', '')})\s*(?:쪽|지역|근처|동네|일대)?\s*(?:에\s*있는\s*)?"
+    r"(?:공영\s*)?(?:노상|노외)?\s*(?:주차장|주차\s*요금|공원)"
+    r"|우리\s*(?:동네\s*)?구(?:청)?\s*(?:의|에서\s*운영하는)?\s*(?:공영\s*)?(?:주차장|주차\s*요금|공원|조례)")
+
+
+def district_owned(question):
+    q = str(question)
+    if DISTRICT_OWNED.search(q) or (_GU_BARE.search(q) and not _SEOUL.search(q)):
+        return True
+    return bool(_REGION.search(q) and _TARGET.search(q) and not _SEOUL.search(q))
 
 _cache = {}
 
@@ -528,7 +562,8 @@ _CALC = re.compile(r"[×x*=+/÷]|합계|계산|곱하|나누|더하")
 
 
 _DELEGATED = re.compile(
-    r"위임|준용|시행규칙|시행령|고시|공고|예산의\s*범위|다른\s*법령"
+    # '예산의 범위에서 지원할 수 있다'는 재원 한도이지 위임이 아니므로 넣지 않습니다(가상 혜택 질문이 새는 원인)
+    r"위임|준용|시행규칙|시행령|고시|공고|다른\s*법령"
     r"|(?:따로|별도로|규칙(?:으로|에서)|조례(?:으로|에서)?|시장이|구청장이|관리자\S*)\s*(?:따로\s*)?정(?:한|하|할|해\s*두|해지)"
 )
 
@@ -553,6 +588,27 @@ def _claims_no_rule(out):
         for m in _NO_RULE.finditer(first)
     )
     return hit and not _DELEGATED.search(out.get("answer", "") or first)
+
+
+# 조문 원문에 있는 위임·준용 문구 (답변 문장이 아니라 근거 조항 쪽에서 확인)
+_DELEG_CLAUSE = re.compile(r"(?:따로|별도로)\s*정한다|(?:시행)?규칙으로\s*정한다|시장이\s*정한다|고시한다|위임한다|준용한다")
+_DELEG_SAYS = re.compile(r"따로\s*정|별도로\s*정|규칙으로\s*정|시장이\s*정|위임|준용")
+
+
+def _delegation_answer(out, hits):
+    """모델이 basis를 '없음'으로 매겼어도, 고른 근거 조항이 실제로 세부를 위임·준용하고 답변이 그 위임을 안내하면
+    운영진 공지(11/19)상 '위임 조항 인용 + 안내'가 정답이므로 답을 살립니다."""
+    by_label = {h["label"]: h for h in hits}
+    ctx = " ".join(by_label[l].get("context", "").split("\n", 1)[-1]
+                   for l in out.get("evidence", []) if l in by_label)
+    ans = out.get("answer", "")
+    # 답이 스스로 "위임 범위에 포함되지 않는다"고 말하면 위임 안내가 아니라 규정 부재입니다 (예: 앱 비밀번호)
+    if _DELEG_NOT_COVER.search(ans):
+        return False
+    return bool(_DELEG_CLAUSE.search(ctx)) and bool(_DELEG_SAYS.search(ans))
+
+
+_DELEG_NOT_COVER = re.compile(r"포함되어\s*있지\s*않|포함되지\s*않|해당하지\s*않|관련이\s*없|적용\s*대상이\s*아니|다루지\s*않")
 
 
 # ---- 계산 검사: 답변에 쓴 계산식(A × B = C)을 코드가 직접 계산해 결과를 대조합니다.
@@ -804,6 +860,9 @@ def answer(question, trace=None):
     if not question or not str(question).strip():
         trace["stop"] = "empty"
         return dict(UNKNOWN)
+    if config.USE_VERIFY and district_owned(question):
+        trace["stop"] = "district"              # 자치구·다른 시가 운영·제정하는 대상을 직접 물음
+        return dict(UNKNOWN)
     queries = rewrite_queries(question)
     trace["queries"] = queries
     top = retrieve(question, queries=queries)
@@ -819,10 +878,12 @@ def answer(question, trace=None):
     out = _ask_consistent(SYSTEM, user_msg, hits, trace)
     trace["llm"] = out
     used = _pick(out, hits)
-    if out.get("basis") == "없음" or _claims_no_rule(out):
+    deleg = config.KEEP_DELEGATION_ANSWER and _delegation_answer(out, hits)
+    trace["delegation_kept"] = deleg
+    if (out.get("basis") == "없음" or _claims_no_rule(out)) and not deleg:
         trace["stop"] = "no_basis"              # 질문의 핵심이 조례에 없음 → 주변 조항으로 설명하지 않고 확인 불가
         return dict(UNKNOWN)
-    if not out.get("found") or not used:
+    if (not out.get("found") and not deleg) or not used:
         trace["stop"] = "found_false" if not out.get("found") else "no_evidence"
         return dict(UNKNOWN)
 
