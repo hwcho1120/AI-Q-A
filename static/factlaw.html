@@ -1,0 +1,663 @@
+<!doctype html>
+<html lang="ko" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#17171c">
+<script>try{document.documentElement.setAttribute("data-theme",localStorage.getItem("fl-theme")==="light"?"light":"dark");}catch(e){document.documentElement.setAttribute("data-theme","dark");}</script>
+<title>Fact Law - 궁금한 조례, 바로 물어보세요</title>
+<meta name="description" content="주차장·동물보호·자전거·도시공원·청년·금연 조례 6종에서 근거를 찾아 쉬운 말로 알려드려요.">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+:root {
+  --bg: #f2f4f6;
+  --card: #ffffff;
+  --ink: #191f28;
+  --ink-2: #4e5968;
+  --ink-3: #8b95a1;
+  --line: #e5e8eb;
+  --fill: #f2f4f6;
+  --blue: #3182f6;
+  --blue-press: #1b64da;
+  --blue-soft: #e8f3ff;
+  --red: #f04452;
+  --yellow-soft: #fff7e0;
+  --yellow-ink: #8a5a00;
+  --r-lg: 20px;
+  --r-md: 14px;
+}
+/* 다크 모드가 기본. 우측 상단 버튼으로 라이트로 바꿀 수 있다 */
+:root[data-theme="dark"] {
+  --bg: #17171c;
+  --card: #202027;
+  --ink: #f9fafb;
+  --ink-2: #c3c8d0;
+  --ink-3: #8b95a1;
+  --line: #2e2e36;
+  --fill: #2a2a32;
+  --blue: #4593fc;
+  --blue-press: #6aa6ff;
+  --blue-soft: #1e2b3f;
+  --red: #ff6b76;
+  --yellow-soft: #2d2916;
+  --yellow-ink: #f0c869;
+}
+[hidden] { display: none !important; }
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font-family: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif;
+  font-size: 16px; line-height: 1.6; letter-spacing: -0.01em;
+  word-break: keep-all; overflow-wrap: anywhere;
+  -webkit-font-smoothing: antialiased;
+}
+button { font: inherit; color: inherit; letter-spacing: inherit; }
+.app { max-width: 1240px; margin: 0 auto; padding: 0 20px; }
+
+/* 상단 */
+.top { display: flex; align-items: center; justify-content: space-between; height: 64px; }
+.brand { background: none; border: 0; padding: 0; cursor: pointer; font-family: inherit; color: var(--ink); font-weight: 800; font-size: 20px; letter-spacing: -0.03em; }
+.brand em { font-style: normal; color: var(--blue); }
+.lead { display: flex; align-items: center; gap: 4px; margin-left: -8px; }
+.icon-btn { width: 44px; height: 44px; border-radius: 50%; border: 0; background: transparent; color: var(--ink); cursor: pointer; display: grid; place-items: center; }
+.icon-btn:hover { background: var(--card); }
+.icon-btn svg { width: 23px; height: 23px; }
+.tools { display: flex; align-items: center; gap: 8px; }
+.theme { width: 40px; height: 40px; border-radius: 50%; border: 0; background: transparent; color: var(--ink-2); cursor: pointer; display: grid; place-items: center; }
+.theme:hover { background: var(--card); color: var(--ink); }
+.theme svg { width: 21px; height: 21px; }
+.theme .i-sun { display: none; }
+:root[data-theme="dark"] .theme .i-sun { display: block; }
+:root[data-theme="dark"] .theme .i-moon { display: none; }
+.chip { font-size: 13px; font-weight: 600; color: var(--blue); background: var(--blue-soft); padding: 5px 11px; border-radius: 999px; }
+
+/* 레이아웃: 가운데 한 줄 */
+.stage { display: flex; flex-direction: column; max-width: 720px; margin: 0 auto; padding-bottom: 24px; }
+.stage > .hero { order: 0; }
+.stage > #ask { order: 1; }
+.stage > .topics { order: 2; }
+.stage > .answer-area { order: 3; }
+.stage[data-state="result"] > .hero { display: none; }
+.stage[data-state="result"] { min-height: calc(100vh - 150px); }
+.stage[data-state="result"] > .topics { display: none; }
+.stage[data-state="result"] > .answer-area { order: 2; margin-top: 4px; }
+/* 대화가 시작되면 입력창은 아래에 붙어 있고, 위로 질문과 답이 쌓인다 */
+.stage[data-state="result"] > #ask { order: 3; position: sticky; bottom: 0; margin-top: auto; z-index: 5; padding: 18px 0 calc(16px + env(safe-area-inset-bottom)); background: linear-gradient(to bottom, transparent, var(--bg) 24px); }
+.hero { text-align: center; padding-top: 24px; }
+.hero h1 { margin: 0; font-size: 30px; line-height: 1.35; font-weight: 800; letter-spacing: -0.035em; }
+.lede { margin: 12px 0 0; color: var(--ink-2); font-size: 16px; }
+
+/* 질문 입력 */
+.ask-box { position: relative; margin-top: 28px; box-shadow: 0 1px 2px rgba(25,31,40,.04), 0 6px 24px rgba(25,31,40,.05); background: var(--card); border-radius: var(--r-lg); transition: box-shadow .15s; }
+.ask-box:focus-within { box-shadow: 0 0 0 2px var(--blue); }
+.stage[data-state="result"] .ask-box { margin-top: 0; }
+.stage[data-state="result"] .kbd-hint { display: none; }
+.stage[data-state="result"] textarea { min-height: 64px; padding-bottom: 20px; }
+textarea {
+  display: block; width: 100%; resize: none; border: 0; outline: 0; background: transparent; color: var(--ink);
+  font: inherit; font-size: 18px; line-height: 1.6; padding: 20px 72px 52px 22px; min-height: 104px; max-height: 200px; border-radius: var(--r-lg);
+}
+textarea::placeholder { color: var(--ink-3); }
+.go {
+  position: absolute; right: 12px; bottom: 12px; width: 48px; height: 48px; border-radius: 50%;
+  border: 0; background: var(--blue); color: #fff; cursor: pointer; display: grid; place-items: center; transition: background .15s, transform .1s;
+}
+.go:hover { background: var(--blue-press); }
+.go:active { transform: scale(.94); }
+.go:disabled { background: var(--line); cursor: default; }
+.go svg { width: 22px; height: 22px; }
+:focus-visible { outline: 3px solid color-mix(in srgb, var(--blue) 50%, transparent); outline-offset: 2px; }
+.kbd-hint { position: absolute; left: 22px; bottom: 17px; font-size: 13px; color: var(--ink-3); pointer-events: none; }
+
+/* 주제 칩 · 예시 · 최근 질문 */
+.block { margin-top: 36px; }
+.block h2 { margin: 0 0 12px; font-size: 14px; font-weight: 600; color: var(--ink-3); text-align: center; }
+.chips { display: flex; flex-wrap: nowrap; gap: 8px; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; -webkit-overflow-scrolling: touch; padding: 2px 0; }
+.chips::-webkit-scrollbar { display: none; }
+/* 폭이 넉넉하면 가운데, 좁으면 왼쪽부터 옆으로 스크롤 (justify-content:center는 넘칠 때 앞이 잘리므로 auto 여백을 쓴다) */
+.chips > :first-child { margin-left: auto; }
+.chips > :last-child { margin-right: auto; }
+.chip-btn { flex: none; white-space: nowrap; border: 0; cursor: pointer; background: var(--card); color: var(--ink-2); font-weight: 600; font-size: 15px; padding: 10px 18px; border-radius: 999px; min-height: 44px; transition: background .15s, color .15s; }
+.chip-btn:hover { color: var(--ink); }
+.chip-btn[aria-pressed="true"] { background: var(--blue-soft); color: var(--blue); }
+.topics .rows { margin-top: 14px; }
+.row-head h2 { margin: 0 0 8px; font-size: 14px; font-weight: 600; color: var(--ink-3); }
+.row-head { display: flex; align-items: baseline; justify-content: space-between; }
+.text-btn { background: none; border: 0; color: var(--ink-3); font-size: 13px; cursor: pointer; padding: 6px 4px; min-height: 32px; }
+.text-btn:hover { color: var(--ink); }
+.rows { list-style: none; margin: 0; padding: 0; background: var(--card); border-radius: var(--r-lg); overflow: hidden; }
+.rows > li + li { border-top: 1px solid var(--line); }
+.row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; text-align: left;
+  background: transparent; border: 0; padding: 16px 20px; min-height: 64px; cursor: pointer;
+}
+.row:hover { background: color-mix(in srgb, var(--fill) 55%, transparent); }
+.row .t { font-weight: 700; font-size: 17px; }
+.row .d { display: block; margin-top: 1px; font-size: 14px; color: var(--ink-3); font-weight: 400; }
+.chev { flex: none; width: 9px; height: 9px; border-right: 2px solid var(--ink-3); border-bottom: 2px solid var(--ink-3); transform: rotate(-45deg); transition: transform .18s; margin-right: 4px; }
+.row[aria-expanded="true"] .chev { transform: rotate(45deg); }
+.exs { padding: 0 12px 12px; }
+.ex { display: block; width: 100%; text-align: left; background: var(--fill); border: 0; border-radius: var(--r-md); padding: 13px 16px; margin-top: 8px; font-size: 15px; line-height: 1.5; cursor: pointer; }
+.ex:hover { background: var(--blue-soft); color: var(--blue); }
+.rows .row .t { font-weight: 500; font-size: 15.5px; }
+
+/* 답변 영역 */
+.card + .card { margin-top: 16px; }
+.card { scroll-margin-top: 16px; background: var(--card); border-radius: var(--r-lg); padding: 28px 24px; animation: rise .28s ease-out both; }
+@keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+.q-label { display: flex; gap: 8px; align-items: flex-start; color: var(--ink-3); font-size: 14px; }
+.q-label b { flex: none; font-weight: 600; background: var(--fill); border-radius: 6px; padding: 1px 8px; }
+.q-label span { padding-top: 1px; color: var(--ink-2); }
+.headline { margin: 18px 0 0; font-size: 25px; line-height: 1.5; font-weight: 800; letter-spacing: -0.03em; }
+.headline .yes { color: var(--blue); }
+.headline .no { color: var(--red); }
+.body-text { margin: 14px 0 0; color: var(--ink-2); font-size: 17px; line-height: 1.75; white-space: pre-wrap; }
+.sec { margin-top: 28px; padding-top: 22px; border-top: 1px solid var(--line); }
+.sec h3 { margin: 0 0 6px; font-size: 14px; font-weight: 600; color: var(--ink-3); }
+.law-btn {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; text-align: left;
+  background: none; border: 0; border-bottom: 1px solid var(--line); padding: 14px 2px; min-height: 56px; font-size: 16px; font-weight: 600; cursor: pointer;
+}
+li:last-child > .law-btn[aria-expanded="false"] { border-bottom: 0; }
+.law-btn:hover { color: var(--blue); }
+.law-btn[aria-expanded="true"] .chev { transform: rotate(45deg); }
+.law { margin: 4px 0 14px; padding: 18px 18px; background: var(--fill); border-radius: var(--r-md); font-size: 15px; line-height: 1.75; color: var(--ink-2); }
+.law .heading { margin: 0 0 8px; font-weight: 700; color: var(--ink); }
+.law p { margin: 0 0 8px; white-space: pre-wrap; }
+.law p.hl { background: var(--blue-soft); color: var(--ink); border-radius: 8px; padding: 8px 12px; margin: 0 -12px 8px; }
+.law p.raw { font-family: ui-monospace, Menlo, monospace; font-size: 12.5px; overflow-x: auto; white-space: pre; }
+.law .tbl-wrap { overflow-x: auto; margin: 10px 0; border-radius: 10px; background: var(--card); }
+.law table { border-collapse: collapse; font-size: 14px; min-width: 100%; }
+.law th, .law td { border-bottom: 1px solid var(--line); padding: 9px 12px; text-align: left; vertical-align: top; }
+.law th { font-weight: 700; color: var(--ink); background: color-mix(in srgb, var(--fill) 60%, var(--card)); }
+.foot-meta { margin: 16px 0 0; font-size: 13.5px; color: var(--ink-3); }
+.foot-meta a { color: var(--blue); text-decoration: none; font-weight: 600; }
+.foot-meta a:hover { text-decoration: underline; }
+.btns { display: flex; gap: 8px; margin-top: 22px; }
+.btn { flex: none; padding: 0 20px; min-height: 46px; font-size: 15px; border-radius: var(--r-md); border: 0; font-weight: 700; font-size: 16px; cursor: pointer; }
+.btn.soft { background: var(--blue-soft); color: var(--blue); }
+.btn.soft:hover { filter: brightness(.97); }
+.btn.line { background: var(--fill); color: var(--ink-2); }
+
+/* 확인 불가 / 오류 */
+.nf-icon { width: 44px; height: 44px; border-radius: 50%; background: var(--yellow-soft); color: var(--yellow-ink); display: grid; place-items: center; font-weight: 800; font-size: 22px; margin-top: 18px; }
+.tips { margin: 18px 0 0; padding: 18px 20px; background: var(--fill); border-radius: var(--r-md); }
+.tips h3 { margin: 0 0 6px; font-size: 14px; color: var(--ink-3); font-weight: 600; }
+.tips ul { margin: 0; padding-left: 18px; color: var(--ink-2); font-size: 15.5px; }
+.tips li { margin: 4px 0; }
+
+/* 불러오는 중 */
+.status { margin: 18px 0 0; font-size: 20px; font-weight: 700; letter-spacing: -0.02em; }
+.skel { height: 16px; border-radius: 8px; background: var(--fill); margin: 14px 0; animation: pulse 1.3s ease-in-out infinite; }
+.skel.s2 { width: 90%; } .skel.s3 { width: 64%; }
+@keyframes pulse { 50% { opacity: .5; } }
+
+/* 최근 질문 서랍 (왼쪽에서 밀려 나옴) */
+.scrim { position: fixed; inset: 0; z-index: 40; background: rgba(0, 0, 0, .34); opacity: 0; pointer-events: none; transition: opacity .22s; }
+.scrim.open { opacity: 1; pointer-events: auto; }
+.drawer {
+  position: fixed; z-index: 50; top: 0; bottom: 0; left: 0; width: min(88vw, 340px);
+  display: flex; flex-direction: column; background: var(--card); color: var(--ink);
+  transform: translateX(-102%); visibility: hidden;
+  transition: transform .26s cubic-bezier(.2, .8, .2, 1), visibility 0s linear .26s;
+  box-shadow: 0 0 40px rgba(0, 0, 0, .18);
+}
+.drawer.open { transform: none; visibility: visible; transition: transform .26s cubic-bezier(.2, .8, .2, 1), visibility 0s; }
+.drawer-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 12px 6px 22px; min-height: 64px; }
+.drawer-title { font-size: 18px; font-weight: 800; letter-spacing: -0.02em; }
+.new-btn { display: flex; align-items: center; gap: 10px; margin: 8px 16px 6px; padding: 0 16px; min-height: 52px; border: 0; border-radius: var(--r-md); background: var(--blue-soft); color: var(--blue); font-size: 16px; font-weight: 700; cursor: pointer; }
+.new-btn svg { width: 19px; height: 19px; }
+.drawer-list { list-style: none; margin: 8px 0 0; padding: 0 10px; overflow-y: auto; flex: 1; scrollbar-width: none; }
+.drawer-list::-webkit-scrollbar { display: none; }
+.drawer-list button { display: block; width: 100%; text-align: left; border: 0; background: transparent; color: var(--ink); border-radius: 12px; padding: 13px 12px; font-size: 15.5px; line-height: 1.5; cursor: pointer; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.drawer-list button:hover { background: var(--fill); }
+.drawer-empty { margin: 28px 22px; font-size: 15px; color: var(--ink-3); line-height: 1.7; }
+.drawer-foot { padding: 8px 18px 18px; border-top: 1px solid var(--line); }
+@media (prefers-reduced-motion: reduce) { .drawer, .scrim { transition: none; } }
+
+footer { margin: 12px 0 48px; padding: 20px 4px 0; font-size: 12.5px; line-height: 1.7; color: var(--ink-3); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+@media (prefers-reduced-motion: reduce) { .card { animation: none; } .skel { animation: none; } * { transition: none !important; } }
+
+/* 태블릿 이상 */
+@media (min-width: 640px) {
+  .app { padding: 0 32px; }
+  .hero h1 { font-size: 36px; }
+}
+/* 노트북 이상: 첫 화면은 세로 가운데, 읽기 편한 폭 */
+@media (min-width: 1024px) {
+  .app { padding: 0 40px; }
+  .top { height: 76px; }
+  .stage { max-width: 760px; }
+  .stage[data-state="home"] { min-height: calc(100vh - 230px); justify-content: center; padding-bottom: 40px; }
+  .hero { padding-top: 0; }
+  .hero h1 { font-size: 44px; line-height: 1.3; }
+  .lede { font-size: 18px; }
+  textarea { font-size: 19px; min-height: 112px; }
+  .stage[data-state="result"] textarea { padding-top: 20px; padding-bottom: 20px; min-height: 68px; }
+  .ask-box { margin-top: 36px; }
+  .card { padding: 40px 40px; }
+  .headline { font-size: 30px; }
+  .body-text { font-size: 18px; }
+  .law-btn { font-size: 17px; }
+}
+@media (max-width: 480px) {
+  .app { padding: 0 16px; }
+  .chips { margin: 0 -16px; padding: 2px 16px; gap: 6px; }
+  .chip-btn { padding: 9px 15px; font-size: 14.5px; }
+  .hero h1 { font-size: 28px; }
+  .card { padding: 24px 20px; }
+  .headline { font-size: 23px; }
+  textarea { font-size: 17px; }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="lead">
+      <button class="icon-btn" id="menu" type="button" aria-label="지난 대화 열기" aria-expanded="false" aria-controls="drawer">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      </button>
+      <button class="brand" id="home" type="button" aria-label="새 질문 시작하기">Fact <em>Law</em></button>
+    </div>
+    <div class="tools">
+      <span class="chip">2026.10.1 기준</span>
+      <button class="theme" id="theme" type="button" aria-label="다크 모드로 바꾸기" title="화면 모드 바꾸기">
+        <svg class="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+        <svg class="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main class="stage" id="stage" data-state="home">
+    <section class="hero">
+      <h1>궁금한 조례,<br>바로 물어보세요</h1>
+      <p class="lede">주차장 · 동물보호 · 자전거 · 도시공원 · 청년 · 금연<br>서울시 조례 6종에서 근거를 찾아 쉬운 말로 알려드려요.</p>
+    </section>
+
+    <form id="ask" autocomplete="off">
+      <label for="q" class="sr">궁금한 내용</label>
+      <div class="ask-box">
+        <textarea id="q" rows="2" maxlength="300" placeholder="예) 65세인데 서울대공원 동물원 입장료 면제되나요?" enterkeyhint="send" aria-describedby="kbd"></textarea>
+        <span class="kbd-hint" id="kbd">Enter 전송 · Shift+Enter 줄바꿈</span>
+        <button class="go" id="send" type="submit" aria-label="질문하기">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+        </button>
+      </div>
+    </form>
+
+    <section class="block topics" aria-labelledby="topics-h">
+      <h2 id="topics-h">주제를 고르면 예시 질문이 나와요</h2>
+      <div class="chips" id="chips"></div>
+      <ul class="rows" id="examples"></ul>
+    </section>
+
+    <section class="answer-area" aria-live="polite" aria-label="답변"><div id="result"></div></section>
+  </main>
+
+  <footer>
+    법률 자문이 아니라 조례 내용을 쉽게 풀어 안내하는 서비스예요. 중요한 결정 전에는 근거 조항의 원문을 확인하고 담당 부서에 문의해 주세요.
+    서울특별시 조례만 다루며 자치구 조례와 상위 법령은 안내하지 않아요.
+    <br>Fact Law
+  </footer>
+</div>
+
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer" aria-label="지난 대화" aria-hidden="true" inert>
+  <div class="drawer-head">
+    <span class="drawer-title">지난 대화</span>
+    <button class="icon-btn" id="menu-close" type="button" aria-label="닫기">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+  </div>
+  <button class="new-btn" id="new-q" type="button">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+    새 질문하기
+  </button>
+  <ul class="drawer-list" id="recent"></ul>
+  <p class="drawer-empty" id="recent-empty">아직 대화가 없어요.<br>궁금한 걸 물어보면 여기에 쌓여요.</p>
+  <div class="drawer-foot" id="recent-foot"><button class="text-btn" id="clear" type="button">기록 지우기</button></div>
+</aside>
+
+<script>
+(function () {
+  "use strict";
+
+  var TOPICS = [
+    { name: "주차장", hint: "요금 · 감면 · 주차구획", qs: [
+      "공영주차장 1급지 노상주차장 요금은 5분에 얼마인가요?",
+      "경차를 서울시 공영주차장에 세우면 주차요금이 할인되나요?",
+      "장애인 할인과 다둥이 행복카드 할인을 공영주차장에서 둘 다 받을 수 있나요?" ] },
+    { name: "동물보호", hint: "등록 · 맹견 · 길고양이", qs: [
+      "유기견을 입양해서 동물등록을 하려는데 등록수수료를 내야 하나요?",
+      "맹견을 데리고 어린이공원에 들어가도 되나요?",
+      "중성화한 길고양이는 어디에 풀어주나요?" ] },
+    { name: "자전거", hint: "주차장 · 공공자전거 요금", qs: [
+      "서울시 자전거주차장은 돈을 내야 하나요? 낸다면 얼마인가요?",
+      "15살 청소년인데 공공자전거 이용요금을 감면받을 수 있나요?",
+      "자전거의 날은 언제인가요?" ] },
+    { name: "도시공원", hint: "입장료 · 시설 이용 · 금주", qs: [
+      "저는 65세인데 서울대공원 동물원 입장료를 면제받을 수 있나요?",
+      "어린이공원에서 술을 마시면 어떻게 되나요?",
+      "도시공원 시설을 예약했는데 사용일 3일 전에 취소하면 이용료를 얼마나 돌려받나요?" ] },
+    { name: "청년", hint: "나이 기준 · 주거 · 지원", qs: [
+      "서울시 청년 기본 조례에서 말하는 청년은 몇 살부터 몇 살까지인가요?",
+      "의무복무를 마친 제대군인이면 청년정책 참여 나이 제한이 늘어나나요?",
+      "청년이 주거 관련 보증보험료 지원을 받으려면 어떤 조건이 필요한가요?" ] },
+    { name: "금연", hint: "금연구역 · 과태료", qs: [
+      "지하철역 출입구 앞에서 담배를 피우면 과태료가 얼마인가요?",
+      "서울시 도시공원에서 담배를 피우면 어떻게 되나요?",
+      "서울시 금연지도원의 임기는 얼마인가요?" ] }
+  ];
+  var MAX_SESSIONS = 10, MAX_TURNS = 12, TIMEOUT_MS = 90000;
+  var PH_HOME = "예) 65세인데 서울대공원 동물원 입장료 면제되나요?", PH_FOLLOW = "이어서 궁금한 점을 물어보세요";
+
+  var $ = function (id) { return document.getElementById(id); };
+  var qEl = $("q"), sendEl = $("send"), resultEl = $("result");
+  var busy = false, evCache = {};
+
+  function el(tag, cls, text) { var n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; }
+  function shortLabel(l) { return l.replace(/^서울특별시\s*/, ""); }
+  /* 대화(세션) 저장: 질문 하나씩 저장하던 예전 형식도 불러와서 세션으로 바꾼다 */
+  var STORE = "seoul-jorye-sessions-v3", OLD_STORE = "seoul-jorye-history-v2";
+  function newSessionObj() { return { id: Date.now(), title: "", turns: [] }; }
+  function loadSessions() {
+    try {
+      var v = JSON.parse(localStorage.getItem(STORE) || "null");
+      if (v && v.length !== undefined) return v;
+      return JSON.parse(localStorage.getItem(OLD_STORE) || "[]").map(function (x, i) { return { id: Date.now() - i, title: x.q, turns: [{ q: x.q, r: x.r }] }; });
+    } catch (e) { return []; }
+  }
+  function saveSessions() { try { localStorage.setItem(STORE, JSON.stringify(sessions.slice(0, MAX_SESSIONS))); } catch (e) { /* 저장 못 해도 동작에는 문제없음 */ } }
+  var sessions = loadSessions(), cur = newSessionObj();
+  function autosize() { qEl.style.height = "auto"; qEl.style.height = Math.min(qEl.scrollHeight, 200) + "px"; }
+  function isWide() { return window.matchMedia("(min-width: 1024px)").matches; }
+
+  /* ---------- 주제 칩 + 예시 ---------- */
+  var chipsEl = $("chips"), exEl = $("examples"), stage = $("stage");
+  function pickTopic(i) {
+    Array.prototype.forEach.call(chipsEl.children, function (b, k) { b.setAttribute("aria-pressed", String(k === i)); });
+    var cur = chipsEl.children[i];
+    if (cur && cur.scrollIntoView && chipsEl.scrollWidth > chipsEl.clientWidth) cur.scrollIntoView({ inline: "center", block: "nearest", behavior: "smooth" });
+    exEl.textContent = "";
+    TOPICS[i].qs.forEach(function (q) {
+      var li = el("li"), b = el("button", "row"), t = el("span", "t", q);
+      b.type = "button"; b.appendChild(t); b.appendChild(el("span", "chev"));
+      b.addEventListener("click", function () { qEl.value = q; autosize(); submit(); });
+      li.appendChild(b); exEl.appendChild(li);
+    });
+  }
+  TOPICS.forEach(function (t, i) {
+    var b = el("button", "chip-btn", t.name); b.type = "button"; b.setAttribute("aria-pressed", "false");
+    b.addEventListener("click", function () { pickTopic(i); });
+    chipsEl.appendChild(b);
+  });
+  pickTopic(0);
+
+  /* ---------- 답변 그리기 ---------- */
+  function splitAnswer(text) {
+    var m = text.match(/^([\s\S]+?[.?!])(?:\s+([\s\S]*))?$/);
+    return m ? { head: m[1], rest: (m[2] || "").trim() } : { head: text, rest: "" };
+  }
+  function fillHeadline(h, text) {
+    var m = text.match(/^(네|예|아니요|아니오)(?=[,.\s])/);
+    if (m) {
+      h.appendChild(el("span", (m[1] === "네" || m[1] === "예") ? "yes" : "no", m[1]));
+      h.appendChild(document.createTextNode(text.slice(m[1].length)));
+    } else { h.textContent = text; }
+  }
+
+  function renderTable(lines) {
+    var rows = lines.filter(function (l) { return !/^\s*\|?\s*:?-{2,}/.test(l); })
+      .map(function (l) { return l.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map(function (c) { return c.trim(); }); });
+    var wrap = el("div", "tbl-wrap"), t = el("table");
+    rows.forEach(function (r, i) {
+      var tr = el("tr");
+      for (var k = 0; k < r.length; ) {          // 이웃한 같은 칸(병합 칸 반복)은 하나로 합친다
+        var span = 1;
+        while (k + span < r.length && r[k + span] === r[k] && r[k] !== "") span++;
+        var cell = el(i === 0 ? "th" : "td", null, r[k]);
+        if (span > 1) cell.colSpan = span;
+        tr.appendChild(cell); k += span;
+      }
+      t.appendChild(tr);
+    });
+    wrap.appendChild(t);
+    return wrap;
+  }
+
+  var AMEND = /<(?:개정|신설|전문개정|본조신설|삭제)[^>]*>/g;
+  function clean(t) { return (t || "").replace(AMEND, "").replace(/[ \t]+\n/g, "\n").trim(); }
+
+  /* /api/source 응답 → 화면용 모양. kind: article(조·항 배열) / annex(별표 마크다운) / annex_raw(별표 원문 텍스트) */
+  function adaptSource(d) {
+    if (!d || !d.found) return null;
+    var out = { label: d.label, source_url: d.source_url, effective_date: d.effective_date }, law = d.law || "";
+    if (d.kind === "article") {
+      out.heading = law + " " + d.article + (d.title ? "(" + d.title + ")" : "");
+      out.paras = d.paragraphs || []; out.highlight = d.highlight;
+    } else if (d.kind === "annex") { out.heading = law + " " + (d.title || ""); out.text = d.markdown || ""; }
+    else { out.heading = law + " " + (d.title || ""); out.text = d.text || ""; out.raw = true; }
+    return out;
+  }
+
+  function renderLaw(box, data) {
+    box.textContent = "";
+    var head = data.heading || shortLabel(data.label);
+    box.appendChild(el("p", "heading", head));
+    if (data.paras) {                              // 조 본문: 인용된 항을 강조한다
+      data.paras.forEach(function (p) {
+        var node = el("p", (data.highlight && p.no === data.highlight) ? "hl" : null, clean(p.text));
+        box.appendChild(node);
+      });
+    } else if (data.raw) {                         // 법제처 원문 괘선 표
+      var pre = el("p", "raw", clean(data.text)); box.appendChild(pre);
+    } else {
+      var lines = clean(data.text).split("\n"), buf = [], table = [], seen = {};
+      seen[head.replace(/\s+/g, "")] = true;
+      var flush = function () { if (buf.length) { box.appendChild(el("p", null, buf.join("\n"))); buf = []; } };
+      var flushT = function () { if (table.length) { box.appendChild(renderTable(table)); table = []; } };
+      lines.forEach(function (l) {
+        if (/^\s*\|/.test(l)) { flush(); table.push(l); return; }
+        flushT();
+        var t = l.replace(/^#+\s*/, "").trim(), key = t.replace(/\s+/g, "");
+        if (t === "") { flush(); return; }
+        if (/^\[별표\s*\d*\]$/.test(t) || seen[key]) return;
+        if (/^[가-힣0-9 ]{2,}\(제?\d+조/.test(t)) seen[key] = true;
+        buf.push(t);
+      });
+      flush(); flushT();
+    }
+    if (data.source_url) {
+      var p2 = el("p", "foot-meta"), a2 = el("a", null, "법제처에서 원문 보기");
+      a2.href = data.source_url; a2.target = "_blank"; a2.rel = "noopener noreferrer";
+      p2.appendChild(document.createTextNode("조례 시행일 " + data.effective_date + " · ")); p2.appendChild(a2);
+      box.appendChild(p2);
+    }
+  }
+
+  function lawItem(label) {
+    var li = el("li"), btn = el("button", "law-btn"), box = el("div", "law");
+    btn.type = "button"; btn.setAttribute("aria-expanded", "false");
+    btn.appendChild(el("span", null, shortLabel(label))); btn.appendChild(el("span", "chev"));
+    box.hidden = true;
+    btn.addEventListener("click", function () {
+      var open = btn.getAttribute("aria-expanded") === "true";
+      btn.setAttribute("aria-expanded", String(!open)); box.hidden = open;
+      if (open || box.dataset.loaded) return;
+      box.textContent = "원문을 불러오는 중이에요.";
+      var done = function (d) { renderLaw(box, d); box.dataset.loaded = "1"; };
+      if (evCache[label]) return done(evCache[label]);
+      fetch("/api/source?label=" + encodeURIComponent(label))
+        .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+        .then(function (d) {
+          var v = adaptSource(d);
+          if (!v) { box.textContent = "이 조항의 원문을 찾지 못했어요."; return; }
+          evCache[label] = v; done(v);
+        })
+        .catch(function () { box.textContent = "원문을 불러오지 못했어요. 잠시 후 다시 눌러 주세요."; });
+    });
+    li.appendChild(btn); li.appendChild(box);
+    return li;
+  }
+
+  function cardShell(question) {
+    var c = el("article", "card"), ql = el("div", "q-label");
+    ql.appendChild(el("b", null, "질문")); ql.appendChild(el("span", null, question));
+    c.appendChild(ql);
+    return c;
+  }
+
+  function buttons(card, copyText) {
+    var row = el("div", "btns"), cp = el("button", "btn soft", "답변 복사하기"); cp.type = "button";
+    cp.addEventListener("click", function () {
+      var ok = function () { cp.textContent = "복사했어요"; setTimeout(function () { cp.textContent = "답변 복사하기"; }, 1800); };
+      if (navigator.clipboard) navigator.clipboard.writeText(copyText).then(ok, function () {});
+    });
+    row.appendChild(cp); card.appendChild(row);
+  }
+
+  function fillAnswer(card, r) {
+    var unknown = !r.citation || !r.citation.length || /^확인 불가/.test(r.answer || "");
+    if (unknown) {
+      card.appendChild(el("div", "nf-icon", "?"));
+      card.appendChild(el("p", "headline", "이 질문은 조례에서 근거를 찾지 못했어요"));
+      card.appendChild(el("p", "body-text", "6개 조례에 없는 내용이거나, 질문이 너무 넓을 수 있어요. 이렇게 바꿔서 다시 물어보세요."));
+      var tips = el("div", "tips"); tips.appendChild(el("h3", null, "더 잘 찾는 방법"));
+      var ul = el("ul");
+      ["대상이나 상황을 넣어 보세요. 예) 65세, 경차, 장애인", "장소를 구체적으로 적어 보세요. 예) 공영주차장, 어린이공원", "알고 싶은 것을 분명하게 적어 보세요. 예) 금액, 기간, 가능 여부"]
+        .forEach(function (t) { ul.appendChild(el("li", null, t)); });
+      tips.appendChild(ul); card.appendChild(tips);
+      return;
+    }
+    var parts = splitAnswer(r.answer);
+    var h = el("p", "headline"); fillHeadline(h, parts.head); card.appendChild(h);
+    if (parts.rest) card.appendChild(el("p", "body-text", parts.rest));
+
+    var sec = el("div", "sec"); sec.appendChild(el("h3", null, "근거 조항 · 눌러서 원문 보기"));
+    var ul2 = el("ul", "rows-plain"); ul2.style.cssText = "list-style:none;margin:0;padding:0";
+    r.citation.forEach(function (c) { ul2.appendChild(lawItem(c)); });
+    sec.appendChild(ul2);
+    if (r.effective_date) sec.appendChild(el("p", "foot-meta", "조례 시행일 " + r.effective_date));
+    card.appendChild(sec);
+    buttons(card, r.answer + "\n\n근거: " + r.citation.map(shortLabel).join(", ") + (r.source_url ? "\n원문: " + r.source_url : ""));
+  }
+
+  /* ---------- 대화 ---------- */
+  function startNew() {                      // 새 세션: 추천 질문이 다시 보인다
+    cur = newSessionObj();
+    stage.dataset.state = "home"; resultEl.textContent = "";
+    qEl.value = ""; qEl.placeholder = PH_HOME; autosize();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+  function openSession(s) {
+    cur = s; stage.dataset.state = "result"; qEl.placeholder = PH_FOLLOW; resultEl.textContent = "";
+    s.turns.forEach(function (t) { var c = cardShell(t.q); c.style.animation = "none"; fillAnswer(c, t.r); resultEl.appendChild(c); });
+    var last = resultEl.lastChild; if (last) last.scrollIntoView({ block: "start" });
+  }
+  $("home").addEventListener("click", startNew);
+
+  function submit() {
+    var q = qEl.value.trim();
+    if (!q || busy) return;
+    busy = true; sendEl.disabled = true;
+    var session = cur, follow = session.turns.length > 0;     // 앞 대화가 있으면 이어진 질문
+    qEl.value = ""; autosize();
+    stage.dataset.state = "result"; qEl.placeholder = PH_FOLLOW;
+
+    var card = cardShell(q), status = el("p", "status", follow ? "앞 대화를 참고해서 찾고 있어요" : "조례에서 관련 조항을 찾고 있어요");
+    card.classList.add("loading"); card.appendChild(status);
+    ["", "s2", "s3"].forEach(function (c) { card.appendChild(el("div", "skel " + c)); });
+    resultEl.appendChild(card);
+    card.scrollIntoView({ block: "start", behavior: "smooth" });
+    var t2 = setTimeout(function () { status.textContent = "찾은 조항으로 답을 정리하고 있어요"; }, 2500);
+    var t3 = setTimeout(function () { status.textContent = "조금 더 걸리고 있어요. 잠시만요"; }, 12000);
+    var ctl = new AbortController(), kill = setTimeout(function () { ctl.abort(); }, TIMEOUT_MS);
+
+    var body = follow
+      ? { question: q, history: session.turns.slice(-3).map(function (t) { return { q: t.q, a: (t.r && t.r.answer) || "", c: (t.r && t.r.citation) || [] }; }) }
+      : { question: q };
+    function swap(c) { if (card.parentNode === resultEl) resultEl.replaceChild(c, card); }
+
+    fetch(follow ? "/api/chat" : "/ask", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: ctl.signal })
+      .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+      .then(function (r) {
+        var c = cardShell(q); fillAnswer(c, r); swap(c);
+        session.turns.push({ q: q, r: r });
+        if (session.turns.length > MAX_TURNS) session.turns.shift();
+        if (!session.title) session.title = q;
+        if (sessions.indexOf(session) < 0) sessions.unshift(session);
+        saveSessions();
+      })
+      .catch(function () {
+        var c = cardShell(q);
+        c.appendChild(el("div", "nf-icon", "!"));
+        c.appendChild(el("p", "headline", "답을 가져오지 못했어요"));
+        c.appendChild(el("p", "body-text", "잠시 후 같은 질문을 다시 해 주세요."));
+        swap(c);
+        if (cur === session) { qEl.value = q; autosize(); }      // 다시 보낼 수 있게 질문을 되돌려 둔다
+      })
+      .then(function () { clearTimeout(t2); clearTimeout(t3); clearTimeout(kill); busy = false; sendEl.disabled = false; });
+  }
+
+  /* ---------- 지난 대화 (왼쪽 서랍) ---------- */
+  var drawer = $("drawer"), scrim = $("scrim"), menuBtn = $("menu");
+  function openDrawer() {
+    renderRecent();
+    drawer.removeAttribute("inert"); drawer.setAttribute("aria-hidden", "false");
+    drawer.classList.add("open"); scrim.classList.add("open");
+    menuBtn.setAttribute("aria-expanded", "true");
+    document.body.style.overflow = "hidden";
+    setTimeout(function () { $("menu-close").focus(); }, 60);
+  }
+  function closeDrawer(restoreFocus) {
+    drawer.classList.remove("open"); scrim.classList.remove("open");
+    drawer.setAttribute("inert", ""); drawer.setAttribute("aria-hidden", "true");
+    menuBtn.setAttribute("aria-expanded", "false");
+    document.body.style.overflow = "";
+    if (restoreFocus !== false) menuBtn.focus();
+  }
+  function renderRecent() {
+    var ul = $("recent"); ul.textContent = "";
+    $("recent-empty").hidden = sessions.length > 0; $("recent-foot").hidden = sessions.length === 0;
+    sessions.forEach(function (s) {
+      var li = el("li"), b = el("button", null, s.title); b.type = "button"; b.title = s.title;
+      b.addEventListener("click", function () { openSession(s); closeDrawer(false); });
+      li.appendChild(b); ul.appendChild(li);
+    });
+  }
+  menuBtn.addEventListener("click", openDrawer);
+  $("menu-close").addEventListener("click", function () { closeDrawer(); });
+  scrim.addEventListener("click", function () { closeDrawer(); });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape" && drawer.classList.contains("open")) closeDrawer(); });
+  $("new-q").addEventListener("click", function () { closeDrawer(false); startNew(); qEl.focus(); });
+  $("clear").addEventListener("click", function () { sessions = []; saveSessions(); renderRecent(); });
+
+  /* ---------- 입력 ---------- */
+  $("ask").addEventListener("submit", function (e) { e.preventDefault(); submit(); });
+  qEl.addEventListener("input", autosize);
+  qEl.addEventListener("keydown", function (e) {
+    // 한글 조합 중 Enter는 글자 확정이므로 전송하지 않는다
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); submit(); }
+  });
+  /* ---------- 화면 모드 (기본 다크, 해/달 버튼) ---------- */
+  var themeBtn = $("theme"), root = document.documentElement, metaTheme = document.querySelector('meta[name="theme-color"]');
+  function applyTheme(t) {
+    root.setAttribute("data-theme", t);
+    themeBtn.setAttribute("aria-label", t === "dark" ? "라이트 모드로 바꾸기" : "다크 모드로 바꾸기");
+    if (metaTheme) metaTheme.setAttribute("content", t === "dark" ? "#17171c" : "#f2f4f6");
+  }
+  applyTheme(root.getAttribute("data-theme") === "light" ? "light" : "dark");
+  themeBtn.addEventListener("click", function () {
+    var next = root.getAttribute("data-theme") === "dark" ? "light" : "dark";
+    applyTheme(next);
+    try { localStorage.setItem("fl-theme", next); } catch (e) { /* 저장 못 해도 이번 방문에는 적용됨 */ }
+  });
+  renderRecent();
+})();
+</script>
+</body>
+</html>
