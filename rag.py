@@ -36,6 +36,12 @@ _SEOUL_EXPLICIT = re.compile(
     r"서울대공원|서울공공자전거|따릉이"
     r"|서울(?:특별시|시)?\s*(?:조례|주차장|동물보호|자전거|도시공원|청년|금연|공영|노상|노외|금연구역|반려견|가\s*관리|에서\s*운영|에서\s*시행|상\s)"
 )
+_GU_BARE_OR_OWNED = re.compile(
+    r"구립\s*(?:공영\s*)?(?:주차장|공원|놀이터|보호센터|보호소|도서관|체육|시설)"
+    r"|우리\s*(?:동네\s*)?구(?:청)?\s*(?:의|에서\s*(?:운영|관리|시행)\S*)?\s*(?:공영\s*)?(?:주차장|주차\s*요금|공원|조례|규칙)"
+    r"|(?<![가-힣])(?:강남|서초|송파|마포|성동|영등포|종로|용산|광진|동대문|중랑|성북|강북|도봉|노원|은평|서대문|양천|강서|구로|금천|동작|관악|강동)\s*"
+    r"(?:쪽|지역|근처|동네|일대)?\s*(?:에\s*있는\s*)?(?:공영\s*)?(?:노상|노외)?\s*(?:주차장|주차\s*요금|공원)"
+)
 
 
 _EXT_CRIMINAL_TRAP = re.compile(
@@ -47,6 +53,8 @@ def _is_other_local_gov(question):
     """특정 자치구·타 지자체의 조례·시설·요금·정책이나 조례 밖 형사처벌·범칙금을 묻는 질문인지 판별합니다.
     질문자가 거주지나 배경만 언급하고 서울시 조례·시설을 명시적으로 묻는 경우는 통과시킵니다."""
     if _EXT_CRIMINAL_TRAP.search(question) and not re.search(r"서울(?:특별시|시)?\s*조례", question):
+        return True
+    if _GU_BARE_OR_OWNED.search(question) and not _SEOUL_EXPLICIT.search(question):
         return True
     if not _OTHER_LOCAL_GOV.search(question):
         return False
