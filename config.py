@@ -54,9 +54,9 @@ SIBLING_FROM_TOP = 3          # 상위 몇 개 근거에 대해 같은 조의 �
 MAX_CONTEXT = 16              # LLM에 넘기는 근거 최대 개수 (검색 top_k + 참조 조항 + 형제 항)
 CITE_ANNEX_PARENT = os.environ.get("CITE_ANNEX_PARENT", "1") == "1"   # 별표 인용 시 그 별표를 정한 본문 조항도 인용
 # 인용한 항이 같은 조의 다른 항을 가리키면("제1항에 따라") 그 항도 인용.
-# 1,200문항 측정 결과 Recall 개선은 미미(TS3 +0.0024)하고 Precision(-0.065~-0.072)·Exact Match(-10%p) 손실이 커 기본 OFF.
-CITE_SIBLING_REFS = os.environ.get("CITE_SIBLING_REFS", "0") == "1"
-CITE_SIBLING_MAX_TOTAL = 5    # 위 보강을 포함한 인용 최대 개수
+# 공식 공지상 정답 근거 수 + 2개 초과 시 감점이므로 MAX_CITATIONS=3 상한 내에서만 보강(초과 감점 0건 보장 + Recall 상승).
+CITE_SIBLING_REFS = os.environ.get("CITE_SIBLING_REFS", "1") == "1"
+CITE_SIBLING_MAX_TOTAL = 3    # 위 보강을 포함한 인용 최대 개수 (MAX_CITATIONS 이하 유지)
 MAX_CITATIONS = 3           # 인용 최대 개수 (여러 개 냈을 때 채점 규칙은 운영진 공지 확인)
 USE_REPAIR =os.environ.get("USE_REPAIR", "1") == "1"     # 검증 실패 시 한 번 고쳐 쓰기
 # 검색 점수가 이보다 낮으면 '확인 불가' 후보로 봅니다. TODO: 공개 예시로 직접 맞춰 보세요.

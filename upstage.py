@@ -29,13 +29,17 @@ def client():
 
 
 def _retry(fn, tries=4):
-    """429/일시적 서버·네트워크 오류 시 지수 백오프 + 지터로 재시도합니다."""
+    """429/일시적 서버·네트워크·타임아웃 오류 시 지수 백오프 + 지터로 재시도합니다."""
     for i in range(tries):
         try:
             return fn()
         except Exception as e:  # noqa: BLE001
-            msg = str(e)
-            transient = any(code in msg for code in ("429", "500", "502", "503", "504", "timeout", "Timeout", "Connection"))
+            msg = str(e).lower()
+            name = type(e).__name__
+            transient = (
+                any(k in name for k in ("Timeout", "Connection", "RateLimit", "InternalServer"))
+                or any(code in msg for code in ("429", "500", "502", "503", "504", "timeout", "timed out", "connection"))
+            )
             if transient and i < tries - 1:
                 time.sleep(min((1.5 ** i) + random.uniform(0.1, 0.5), 5.0))
                 continue
@@ -63,8 +67,9 @@ def usage_snapshot():
         return json.loads(json.dumps(USAGE))
 
 
-def _create(**kw):
-    return _record(kw["model"], _retry(lambda: client().chat.completions.create(**kw)))
+def _create(timeout=None, tries=4, **kw):
+    cli = client().with_options(timeout=timeout) if timeout is not None else client()
+    return _record(kw["model"], _retry(lambda: cli.chat.completions.create(**kw), tries=tries))
 
 
 def chat(messages, response_format=None, temperature=0.0, reasoning_effort=None):
@@ -76,18 +81,20 @@ def chat(messages, response_format=None, temperature=0.0, reasoning_effort=None)
     if not response_format:
         resp = _create(**kw)
         return resp.choices[0].message.content
-    # 구조화 출력: 응답이 비거나 JSON이 깨지면 한 번 더, 그래도 안 되면 추론 모드를 끄고 다시 시도합니다.
-    attempts = [kw, kw, {k: v for k, v in kw.items() if k != "reasoning_effort"}]
+    # 구조화 출력: 추론 모드는 28초 단발 시도 후 타임아웃·JSON 오류 시 즉시 일반 모드로 폴백합니다.
+    no_reason = {k: v for k, v in kw.items() if k != "reasoning_effort"}
+    attempts = ([(kw, 28.0, 1), (no_reason, 20.0, 3), (no_reason, 20.0, 2)]
+                if reasoning_effort else [(kw, 20.0, 3), (kw, 20.0, 2)])
     last = None
-    for a in attempts:
-        resp = _create(**a)
-        content = resp.choices[0].message.content
+    for a, to, tr in attempts:
         try:
+            resp = _create(timeout=to, tries=tr, **a)
+            content = resp.choices[0].message.content
             json.loads(content or "")
             return content
-        except (TypeError, ValueError) as e:
+        except Exception as e:  # noqa: BLE001  타임아웃·깨진 JSON 시 다음 폴백 시도
             last = e
-    raise ValueError(f"구조화 출력 실패(3회): {last!r}")
+    raise ValueError(f"구조화 출력 실패: {last!r}")
 
 
 def embed(texts, model):
