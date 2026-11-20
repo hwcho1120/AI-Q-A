@@ -53,13 +53,10 @@ REWRITE_WEIGHT = 0.95         # 재작성 질문 점수에 곱하는 값 (원 �
 SIBLING_FROM_TOP = 3          # 상위 몇 개 근거에 대해 같은 조의 다른 항을 덧붙일지
 MAX_CONTEXT = 16              # LLM에 넘기는 근거 최대 개수 (검색 top_k + 참조 조항 + 형제 항)
 CITE_ANNEX_PARENT = os.environ.get("CITE_ANNEX_PARENT", "1") == "1"   # 별표 인용 시 그 별표를 정한 본문 조항도 인용
-# 모델이 '근거 없음'으로 매겼어도 고른 조항이 위임·준용 조항이고 답이 그 위임을 안내하면 답을 살림.
-# TestSet3 A/B(11/19): 켜면 가상 세부 규정 함정(예: 놀이터 체온 카메라 오차)이 인접 위임 조항으로 14건 새어 기본 끔.
-KEEP_DELEGATION_ANSWER = os.environ.get("KEEP_DELEGATION_ANSWER", "0") == "1"
 # 인용한 항이 같은 조의 다른 항을 가리키면("제1항에 따라") 그 항도 인용.
-# 1,200문항 측정 결과 Recall 개선은 미미(TS3 +0.0024)하고 Precision(-0.065~-0.072)·Exact Match(-10%p) 손실이 커 기본 OFF.
-CITE_SIBLING_REFS = os.environ.get("CITE_SIBLING_REFS", "0") == "1"
-CITE_SIBLING_MAX_TOTAL = 5    # 위 보강을 포함한 인용 최대 개수
+# 공식 공지상 정답 근거 수 + 2개 초과 시 감점이므로 MAX_CITATIONS=3 상한 내에서만 보강(초과 감점 0건 보장 + Recall 상승).
+CITE_SIBLING_REFS = os.environ.get("CITE_SIBLING_REFS", "1") == "1"
+CITE_SIBLING_MAX_TOTAL = 3    # 위 보강을 포함한 인용 최대 개수 (MAX_CITATIONS 이하 유지)
 MAX_CITATIONS = 3           # 인용 최대 개수 (여러 개 냈을 때 채점 규칙은 운영진 공지 확인)
 USE_REPAIR =os.environ.get("USE_REPAIR", "1") == "1"     # 검증 실패 시 한 번 고쳐 쓰기
 # 검색 점수가 이보다 낮으면 '확인 불가' 후보로 봅니다. TODO: 공개 예시로 직접 맞춰 보세요.
@@ -67,6 +64,8 @@ MIN_SCORE = 0.25
 
 # 대회 제한은 문항당 90초. 여유를 두고 이 시간을 넘기면 '확인 불가'로 돌려줍니다.
 ANSWER_TIMEOUT_SEC = 75
+MAX_CONCURRENCY = int(os.environ.get("MAX_CONCURRENCY", "20"))    # Upstage API 동시 요청 상한 (동시 8스레드 무병목 + 과부하 방어)
+EMBED_CACHE_MAX = int(os.environ.get("EMBED_CACHE_MAX", "2000"))  # 질문 임베딩 디스크 캐시 최대 항목 수
 RRF_K = 10                    # 순위 합산(RRF) 상수: 작을수록 각 검색어의 상위권을 더 우대
 RRF_DEPTH = 60                # 검색어마다 몇 위까지 합산에 넣을지
 USE_HYDE = os.environ.get("USE_HYDE", "1") == "1"         # 가상 조문(HyDE)도 검색어로 사용
@@ -76,8 +75,11 @@ LAW_FOCUS_RATIO = 0.5         # 1등 조례 점수의 이 비율 이상인 조�
 # 답변 단계 추론 모드: "" 끔 / "low" / "medium" / "high"
 # 깨끗한 150문항 A/B(11/17): low → 근거 0.969 그대로, 평균 17.5s·최대 61.8s / 끔 → 근거 0.969, 평균 5.7s·최대 12.8s → 기본값 끔
 ANSWER_REASONING = os.environ.get("ANSWER_REASONING", "")
-REPAIR_REASONING = os.environ.get("REPAIR_REASONING", "low")  # 검증 실패 후 고쳐 쓰기에만 추론 ON
+AUTO_REASONING = os.environ.get("AUTO_REASONING", "")         # 500문항 A/B(11/20): low 시 max 76.8s·Recall 0.9772 vs "" 시 max 55.0s·Recall 0.9857 → 기본값 ""
+REPAIR_REASONING = os.environ.get("REPAIR_REASONING", "low")  # 검증 실패 건(소수)만 추론 ON으로 정밀 교정 (28s 폴백 보호)
 CONSISTENCY_N = int(os.environ.get("CONSISTENCY_N", "1"))   # 답을 동시에 몇 개 만들어 다수결할지 (1이면 끔)
 CONSISTENCY_GRACE_SEC = 5.0   # 첫 답 이후 나머지 답을 기다리는 최대 시간 (응답 시간 상한)
-REPAIR_BUDGET_SEC = 35.0      # 질문 받은 뒤 이 시간이 지났으면 고쳐 쓰기를 건너뜀 (90초 제한 대비)
+REPAIR_BUDGET_SEC = 55.0      # 질문 받은 뒤 이 시간이 지났으면 고쳐 쓰기를 건너뜀 (75초 서버 타임아웃 대비)
+RETRY_FIX_CITATIONS = os.environ.get("RETRY_FIX_CITATIONS", "0") == "1"  # 단일 생성 시 Repair가 누락 조항도 보충할 수 있도록 기본 끔
+USE_SAFE_VERDICT = os.environ.get("USE_SAFE_VERDICT", "1") == "1"        # 재작성도 검증 실패 시 원문 직역 보수적 판결 1회 시도
 USE_ANSWER_FRAMES = os.environ.get("USE_ANSWER_FRAMES", "0") == "1"   # 질문 유형별 답변 틀 (148문항 측정에서 0.920→0.876으로 하락해 끔)

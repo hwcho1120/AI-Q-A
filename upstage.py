@@ -12,6 +12,10 @@ import requests
 import config
 
 _client = None
+_sema = threading.BoundedSemaphore(max(1, config.MAX_CONCURRENCY))
+_embed_cache = None
+_embed_cache_lock = threading.Lock()
+_EMBED_CACHE_PATH = config.DATA / "query_embed_cache.jsonl"
 
 
 def client():
@@ -28,23 +32,50 @@ def client():
     return _client
 
 
-def _retry(fn, tries=4):
-    """429/일시적 서버·네트워크 오류 시 지수 백오프 + 지터로 재시도합니다."""
-    for i in range(tries):
-        try:
-            return fn()
-        except Exception as e:  # noqa: BLE001
-            msg = str(e)
-            transient = any(code in msg for code in ("429", "500", "502", "503", "504", "timeout", "Timeout", "Connection"))
-            if transient and i < tries - 1:
-                time.sleep(min((1.5 ** i) + random.uniform(0.1, 0.5), 5.0))
-                continue
-            raise
-
-
-# ---- 사용량 집계: 응답의 usage(토큰 수)를 모델별로 누적합니다. 크레딧 소모 추정용.
+# ---- 사용량 및 장애·429 계측: 응답의 usage(토큰 수)와 재시도·실패 횟수를 함께 누적합니다.
 _usage_lock = threading.Lock()
 USAGE = {}
+_STATS = {"calls": 0, "calls_chat": 0, "calls_embed": 0, "retry_429": 0, "retry_other": 0, "failed": 0, "ask_failed": 0}
+
+
+def _stat_inc(key, n=1):
+    with _usage_lock:
+        _STATS[key] = _STATS.get(key, 0) + n
+
+
+def mark_ask_failed():
+    _stat_inc("ask_failed")
+
+
+def stats():
+    with _usage_lock:
+        return dict(_STATS)
+
+
+def _retry(fn, tries=4, kind="chat", count_fail=True):
+    """429/일시적 서버·네트워크·타임아웃 오류 시 세마포어 밖에서 지수 백오프 + 지터로 재시도합니다."""
+    _stat_inc("calls")
+    _stat_inc(f"calls_{kind}")
+    for i in range(tries):
+        try:
+            with _sema:
+                return fn()
+        except Exception as e:  # noqa: BLE001
+            msg = str(e).lower()
+            name = type(e).__name__
+            is_429 = ("429" in msg) or ("RateLimit" in name)
+            transient = (
+                is_429
+                or any(k in name for k in ("Timeout", "Connection", "InternalServer"))
+                or any(code in msg for code in ("500", "502", "503", "504", "timeout", "timed out", "connection"))
+            )
+            if transient and i < tries - 1:
+                _stat_inc("retry_429" if is_429 else "retry_other")
+                time.sleep(min((1.5 ** i) + random.uniform(0.1, 0.5), 5.0))
+                continue
+            if count_fail:
+                _stat_inc("failed")
+            raise
 
 
 def _record(model, resp):
@@ -63,8 +94,9 @@ def usage_snapshot():
         return json.loads(json.dumps(USAGE))
 
 
-def _create(**kw):
-    return _record(kw["model"], _retry(lambda: client().chat.completions.create(**kw)))
+def _create(timeout=None, tries=4, count_fail=True, **kw):
+    cli = client().with_options(timeout=timeout) if timeout is not None else client()
+    return _record(kw["model"], _retry(lambda: cli.chat.completions.create(**kw), tries=tries, kind="chat", count_fail=count_fail))
 
 
 def chat(messages, response_format=None, temperature=0.0, reasoning_effort=None):
@@ -76,25 +108,87 @@ def chat(messages, response_format=None, temperature=0.0, reasoning_effort=None)
     if not response_format:
         resp = _create(**kw)
         return resp.choices[0].message.content
-    # 구조화 출력: 응답이 비거나 JSON이 깨지면 한 번 더, 그래도 안 되면 추론 모드를 끄고 다시 시도합니다.
-    attempts = [kw, kw, {k: v for k, v in kw.items() if k != "reasoning_effort"}]
+    # 구조화 출력: 추론 모드는 28초 단발 시도 후 타임아웃·JSON 오류 시 즉시 일반 모드로 폴백합니다.
+    no_reason = {k: v for k, v in kw.items() if k != "reasoning_effort"}
+    attempts = ([(kw, 28.0, 1), (no_reason, 20.0, 3), (no_reason, 20.0, 2)]
+                if reasoning_effort else [(kw, 20.0, 3), (kw, 20.0, 2)])
     last = None
-    for a in attempts:
-        resp = _create(**a)
-        content = resp.choices[0].message.content
+    for idx, (a, to, tr) in enumerate(attempts):
         try:
+            resp = _create(timeout=to, tries=tr, count_fail=(idx == len(attempts) - 1), **a)
+            content = resp.choices[0].message.content
             json.loads(content or "")
             return content
-        except (TypeError, ValueError) as e:
+        except Exception as e:  # noqa: BLE001  타임아웃·깨진 JSON 시 다음 폴백 시도
             last = e
-    raise ValueError(f"구조화 출력 실패(3회): {last!r}")
+    raise ValueError(f"구조화 출력 실패: {last!r}")
+
+
+def _load_embed_cache():
+    global _embed_cache
+    if _embed_cache is None:
+        cache = {}
+        try:
+            if _EMBED_CACHE_PATH.exists():
+                for line in _EMBED_CACHE_PATH.read_text(encoding="utf-8").splitlines():
+                    if not line.strip():
+                        continue
+                    item = json.loads(line)
+                    cache[item[0]] = item[1]
+                    if len(cache) > config.EMBED_CACHE_MAX:
+                        cache.pop(next(iter(cache)))
+        except Exception:  # noqa: BLE001
+            cache = {}
+        _embed_cache = cache
+    return _embed_cache
+
+
+def _append_embed_cache(items):
+    """신규 임베딩 항목만 JSONL 끝에 추가 기록해 대용량 직렬화 병목을 없앱니다."""
+    if not items:
+        return
+    try:
+        _EMBED_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        lines = "".join(json.dumps([t, [round(v, 6) for v in vec]], ensure_ascii=False) + "\n" for t, vec in items)
+        with _EMBED_CACHE_PATH.open("a", encoding="utf-8") as f:
+            f.write(lines)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def embed(texts, model):
+    if model == config.EMBED_QUERY and texts:
+        local_map = {}
+        missing = []
+        with _embed_cache_lock:
+            cache = _load_embed_cache()
+            for t in dict.fromkeys(texts):
+                if t in cache:
+                    local_map[t] = cache[t]
+                else:
+                    missing.append(t)
+        if missing:
+            fetched = []
+            for i in range(0, len(missing), 50):
+                batch = missing[i:i + 50]
+                resp = _record(model, _retry(lambda b=batch: client().embeddings.create(model=model, input=b), kind="embed"))
+                fetched.extend(d.embedding for d in resp.data)
+            new_items = list(zip(missing, fetched))
+            for t, vec in new_items:
+                local_map[t] = vec
+            with _embed_cache_lock:
+                cache = _load_embed_cache()
+                fresh = [(t, vec) for t, vec in new_items if t not in cache]
+                for t, vec in fresh:
+                    cache[t] = vec
+                    if len(cache) > config.EMBED_CACHE_MAX:
+                        cache.pop(next(iter(cache)))
+                _append_embed_cache(fresh)
+        return [local_map[t] for t in texts]
     out = []
     for i in range(0, len(texts), 50):        # 한 번에 너무 많이 보내지 않습니다
         batch = texts[i:i + 50]
-        resp = _record(model, _retry(lambda: client().embeddings.create(model=model, input=batch)))
+        resp = _record(model, _retry(lambda b=batch: client().embeddings.create(model=model, input=b), kind="embed"))
         out.extend(d.embedding for d in resp.data)
     return out
 
@@ -118,8 +212,11 @@ _GROUND_SYSTEM = """너는 답변 검증기다. [질문]에 대한 [답변]이 [
 - notGrounded: 핵심 사실 중 근거와 모순되거나 근거에 전혀 없는 것(지어낸 숫자·조건·결론)이 있다.
 - notSure: 판단하기 애매하다.
 - 답변의 결론(네/아니요, 가능/불가, 면제/부과)이 근거를 적용한 결과와 반대이면 notGrounded.
-  특히 '다만'·괄호 단서가 범위를 넓히는지(포함) 좁히는지(제외) 확인하고, 단서를 거꾸로 읽은 결론은 notGrounded.
-- 답변이 질문의 장소·대상에 어떤 규정이 적용된다고 말하는데, 그 장소·대상이 근거 조항의 적용 범위(지정 대상 목록 등)에 적혀 있지 않으면 notGrounded.
+  · 특히 '다만'·괄호 단서가 범위를 넓히는지(포함) 좁히는지(제외) 확인하고, 단서를 거꾸로 읽은 결론은 notGrounded.
+  · 법령의 '다만, X의 경우는 그러하지 아니하다'는 앞 문장 전체의 주된 서술어('~하여야 한다', '~하지 못한다', '~면하지 못한다')를 정반대로 뒤집는다(중간 '제외하고는' 절만 뒤집는 것이 아니다). 예: 'A를 증명한 경우를 제외하고는 책임을 면하지 못한다. 다만, X의 경우는 그러하지 아니하다' → 주된 서술어('책임을 면하지 못한다')를 부정하므로 X의 경우에는 A 입증과 무관하게 '책임을 면한다(책임을 지지 않는다)'. 이를 반대로 해석한 결론은 반드시 notGrounded.
+  · '~하여야 한다'(의무)와 '~할 수 있다'(재량)를 뒤바꾼 결론, 경계값('이상·이하·이내'는 포함, '초과·미만'은 제외; 예: '6세 미만' 면제에 10세 적용)을 틀린 결론, 시작일 포함 기간 기산(예: 6월 1일부터 7일 이상 → 7일째인 6월 7일)을 틀린 결론도 반드시 notGrounded.
+  · 조문이 지원 항목·대상을 한정 열거했는데 '절차·방법 위임' 조항을 들어 열거된 항목 외 추가 지원이 가능할 수 있다고 추측해 결론을 뒤집은 경우도 notGrounded.
+- 답변이 질문의 장소·대상에 어떤 규정이 적용된다고 말하는데, 그 장소·대상이 근거 조항의 적용 범위(지정 대상 목록 등)에 적혀 있지 않으면 notGrounded. 특히 '공공자전거(따릉이)' 대여·이용 요금 질문에 '자전거주차장 요금표(별표, 제9조: 1시간 200원, 1일 1,000원, 월 15,000원)'를 적용·인용한 답변은 서로 다른 시설을 혼동한 것이므로 반드시 notGrounded.
 다음은 근거에 없는 사실로 보지 않는다:
 - 질문에 나온 대상(장소·사람·상황)을 답변에서 그대로 언급하는 것. 예) 질문의 '어린이공원'에 근거의 '금주구역 지정 대상 공원' 규정을 적용
 - 쉬운 말로 바꿔 쓴 표현, 일반적인 안내 문구("현장에서 확인하세요")
@@ -135,10 +232,10 @@ _GROUND_SCHEMA = {
         "schema": {
             "type": "object",
             "properties": {
-                "verdict": {"type": "string", "enum": ["grounded", "notGrounded", "notSure"]},
                 "reason": {"type": "string"},
+                "verdict": {"type": "string", "enum": ["grounded", "notGrounded", "notSure"]},
             },
-            "required": ["verdict", "reason"],
+            "required": ["reason", "verdict"],
             "additionalProperties": False,
         },
     },
@@ -165,11 +262,11 @@ _GROUND_SENT_SCHEMA = {
         "schema": {
             "type": "object",
             "properties": {
-                "verdict": {"type": "string", "enum": ["grounded", "notGrounded", "notSure"]},
-                "unsupported": {"type": "array", "items": {"type": "integer"}},
                 "reason": {"type": "string"},
+                "unsupported": {"type": "array", "items": {"type": "integer"}},
+                "verdict": {"type": "string", "enum": ["grounded", "notGrounded", "notSure"]},
             },
-            "required": ["verdict", "unsupported", "reason"],
+            "required": ["reason", "unsupported", "verdict"],
             "additionalProperties": False,
         },
     },
@@ -179,10 +276,13 @@ _GROUND_SENT_SCHEMA = {
 def groundedness_sentences(context, sentences, question="", prefix=""):
     """문장 번호를 붙여 검증하고, 근거 없는 문장 번호(0부터)를 함께 돌려줍니다: (verdict, reason, [idx...])
 
-    문장 단위로 알려 주면, 결론 문장이 멀쩡할 때 코드가 문제 문장만 지울 수 있습니다(전체 재작성 불필요).
+    reason을 먼저 써서 단서·이중부정·경계값·의무/재량을 단계적으로 대조한 뒤 verdict를 확정합니다.
     """
     numbered = "\n".join(f"[{i}] {(prefix if i == 1 else '') + t}" for i, t in enumerate(sentences, 1))
-    sys_msg = _GROUND_SYSTEM + "\nunsupported에는 근거에 없는 사실이 들어 있는 문장의 번호([n])를 모두 넣는다. 없으면 빈 배열."
+    sys_msg = (_GROUND_SYSTEM +
+               "\n먼저 reason에 결론의 방향(단서·이중부정·경계값·의무/재량)과 각 문장의 근거 대조 결과를 1~3문장으로 쓴 뒤, "
+               "unsupported에 근거와 어긋나거나 근거에 없는 사실이 있는 문장 번호([n])를 모두 넣고(없으면 빈 배열), "
+               "마지막에 verdict를 판정한다.")
     try:
         raw = chat([{"role": "system", "content": sys_msg},
                     {"role": "user", "content": f"[근거]\n{context}\n\n[질문]\n{question}\n\n[답변 문장]\n{numbered}"}],

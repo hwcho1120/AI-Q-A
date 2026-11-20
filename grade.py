@@ -30,8 +30,9 @@ LAWS = {parse(f"{c['law']} 제1조")[0] for c in json.loads(
 
 def run_one(q):
     t0 = time.time()
+    trace = {}
     try:
-        r, err = rag.answer(q["question"]), None
+        r, err = rag.answer(q["question"], trace), None
     except Exception as e:  # noqa: BLE001
         r, err = dict(rag.UNKNOWN), repr(e)
     sec = time.time() - t0
@@ -39,7 +40,7 @@ def run_one(q):
     unknown = r.get("answer", "").startswith("확인 불가") and cites == []
     row = {"id": q["id"], "type": q.get("type"), "question": q["question"], "gold": q["gold"],
            "answer_key": q.get("answer_key", ""), "response": r, "sec": round(sec, 2), "error": err,
-           "unknown": unknown,
+           "unknown": unknown, "trace": trace,
            "leak": any((parse(c) or ("?",))[0] not in LAWS for c in cites)}
     if q["gold"]:
         ok90 = not err and sec <= 90

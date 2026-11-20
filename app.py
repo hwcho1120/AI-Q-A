@@ -22,12 +22,21 @@ import rag
 log = logging.getLogger("uvicorn.error")
 
 
+_warm_ok = False
+_warmup_sec = None
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    global _warm_ok, _warmup_sec
+    t0 = time.time()
     try:
         rag._load()
         rag._links()
-        log.info("RAG index warmed up (unit=%s)", config.CHUNK_UNIT)
+        rag._rev_refs()
+        _warm_ok = True
+        _warmup_sec = round(time.time() - t0, 2)
+        log.info("RAG index warmed up (unit=%s, %.2fs)", config.CHUNK_UNIT, _warmup_sec)
     except Exception as e:  # noqa: BLE001
         log.warning("warmup failed: %r", e)
     yield
@@ -61,7 +70,16 @@ class Ask(BaseModel):
 
 @app.get("/health")
 def health():
-    return {"ok": True, "chunk_unit": config.CHUNK_UNIT, "verify": config.USE_VERIFY}
+    import upstage
+    return {
+        "ok": True,
+        "warm": _warm_ok,
+        "warmup_sec": _warmup_sec,
+        "has_key": bool(config.UPSTAGE_API_KEY),
+        "chunk_unit": config.CHUNK_UNIT,
+        "verify": config.USE_VERIFY,
+        "upstage": upstage.stats(),
+    }
 
 
 def _answer_logged(question):
@@ -90,5 +108,7 @@ async def ask(req: Ask):
         return await asyncio.wait_for(asyncio.to_thread(_answer_logged, req.question),
                                       timeout=config.ANSWER_TIMEOUT_SEC)
     except Exception as e:  # noqa: BLE001  시간 초과·API 오류 모두 '확인 불가'로 응답
+        import upstage
+        upstage.mark_ask_failed()
         log.warning("ask failed: %r", e)
         return dict(rag.UNKNOWN)

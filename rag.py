@@ -17,40 +17,62 @@ import config
 
 UNKNOWN = {"answer": "확인 불가", "citation": [], "source_url": "", "effective_date": ""}
 DISTRICT = re.compile(r"서울특별시\s*\S+구\s")      # 'OO구' 자치구 조례 인용 방지
-# 자치구·다른 시가 '운영·제정하는 대상'을 직접 묻는 질문: "강남구 공영주차장 요금", "마포구 조례", "부산시 주차요금".
-# 지역명 바로 뒤에 시설·조례·요금 같은 대상이 붙을 때만 잡습니다. "마포구에 사는 청년인데 서울시 조례…"처럼
-# 거주지만 밝힌 질문은 통과합니다. (운영진 공지: 자치구·다른 시도 조례를 묻는 질문은 확인 불가)
-_GU = (r"강남|서초|송파|마포|성동|영등포|종로|용산|광진|동대문|중랑|성북|강북|도봉|노원|은평|서대문|양천|강서|구로"
-       r"|금천|동작|관악|강동|중")
-_OTHER_CITY = r"부산|인천|대구|대전|광주|울산|세종|수원|성남|고양|용인|부천|안산|안양|화성|청주|전주|창원|천안|제주"
-DISTRICT_OWNED = re.compile(
-    rf"(?<![가-힣])(?:(?:{_GU})구(?:청)?|(?:{_OTHER_CITY})(?:광역|특별자치)?시)\s*"
-    r"(?:의|에서\s*(?:운영|관리)하는|이\s*(?:운영|관리)하는|가\s*(?:운영|관리)하는|에\s*있는|내|소재|관내)?\s*"
-    r"(?:구립|구영|시립|자체)?\s*"
-    r"(?:공영\s*)?(?:노상|노외)?\s*(?:반려견\s*)?"
-    r"(?:주차장|주차\s*요금|공원|놀이터|보호센터|보호소|조례|규칙|과태료|감면|수수료|이용료|요금|지원금|보조금)"
-    r"|(?<![가-힣])(?:구립|구영)\s*(?:공원|주차장|놀이터|시설)")
-# 어순이 바뀐 경우("공영주차장 요금 알려줘 강남구"): 지역명이 거주·출신 표현 없이 쓰이고, 시설·요금 단어가 있고,
-# 서울시를 따로 언급하지 않으면 자치구·다른 시 대상을 묻는 것으로 봅니다.
-_REGION = re.compile(rf"(?<![가-힣])(?:(?:{_GU})구(?:청)?|(?:{_OTHER_CITY})(?:광역|특별자치)?시)"
-                     r"(?!\s*(?:에\s*(?:사는|살|거주)|에서\s*(?:살|이사|왔|온)|민|주민|거주))")
-_TARGET = re.compile(r"주차장|주차\s*요금|공원|놀이터|보호센터|보호소|조례|규칙|과태료|감면|수수료|이용료|요금|지원금|보조금"
-                     r"|운영\s*시간")
-_SEOUL = re.compile(r"서울\s*(?:특별)?시|서울시|시\s*조례")
+
+# 자치구(25개 구)·타 시·도 지명 감지 (거주지 언급 + 서울시 조례 명시 질의는 정상 통과)
+_OTHER_LOCAL_GOV = re.compile(
+    r"(?:강남|서초|송파|마포|성동|영등포|종로|용산|광진|동대문|중랑|성북|강북|도봉|노원|은평|서대문|양천|강서|구로|금천|동작|관악|강동)구"
+    r"|(?:서울(?:특별시)?\s*|(?<=[\s,]))중구(?=[에의에서을를은는도과와,\s]|$)"
+    r"|(?:해운대|수영|부산진|동래|사하|연제|수성|달서|유성|연수|남동|부평|계양|미추홀|분당|수정|중원|일산동|일산서|덕양|팔달|영통|장안|권선|기흥|수지|처인)구"
+    r"|(?:부산|인천|대구|대전|광주|울산|세종|수원|성남|고양|용인|부천|안양|화성|안산|남양주|평택|김포|파주|시흥|광명|하남|군포|오산|의정부|구리|과천|의왕|양주|포천|여주|이천|안성|춘천|원주|강릉|청주|충주|제천|천안|아산|서산|당진|공주|논산|전주|군산|익산|정읍|목포|여수|순천|광양|나주|포항|구미|경주|안동|김천|경산|창원|김해|진주|양산|거제|통영|사천|밀양|제주|서귀포)(?:광역|특별자치)?시"
+    r"|경기도|강원(?:특별자치)?도|충청[남북]도|전라[남북]도|전북특별자치도|경상[남북]도|제주(?:특별자치)?도"
+    r"|(?<![가-힣])(?:충북|충남|전북|전남|경북|경남)(?=[에의에서을를은는도과와\s]|$)"
+)
+_LOCAL_GOV_TARGET = re.compile(
+    r"(?:강남|서초|송파|마포|성동|영등포|종로|용산|광진|동대문|중랑|성북|강북|도봉|노원|은평|서대문|양천|강서|구로|금천|동작|관악|강동|중)구\s*"
+    r"(?:의\s*|에서\s*(?:운영|시행|정하|관리|지원|부과)\S*\s*)?"
+    r"(?:조례|규칙|공영|노상|노외|부설|거주자\s*우선|주차장|공원|도시공원|동물|유기|반려|자전거|청년\s*기본|금연|과태료|요금|입장료|사용료|이용료|수수료)"
+)
+_SEOUL_EXPLICIT = re.compile(
+    r"서울대공원|서울공공자전거|따릉이"
+    r"|서울(?:특별시|시)?\s*(?:조례|주차장|동물보호|자전거|도시공원|청년|금연|공영|노상|노외|금연구역|반려견|가\s*관리|에서\s*운영|에서\s*시행|상\s)"
+)
+_GU_BARE_OR_OWNED = re.compile(
+    r"구립\s*(?:공영\s*)?(?:주차장|공원|놀이터|보호센터|보호소|도서관|체육|시설)"
+    r"|우리\s*(?:동네\s*)?구(?:청)?\s*(?:의|에서\s*(?:운영|관리|시행)\S*)?\s*(?:공영\s*)?(?:주차장|주차\s*요금|공원|조례|규칙)"
+    r"|(?<![가-힣])(?:강남|서초|송파|마포|성동|영등포|종로|용산|광진|동대문|중랑|성북|강북|도봉|노원|은평|서대문|양천|강서|구로|금천|동작|관악|강동)\s*"
+    r"(?:쪽|지역|근처|동네|일대)?\s*(?:에\s*있는\s*)?(?:공영\s*)?(?:노상|노외)?\s*(?:주차장|주차\s*요금|공원)"
+)
 
 
-# '구' 없이 쓴 지역명("송파 공영주차장", "강남 쪽 공영주차장")과 "우리 구". '중'은 흔한 글자라 제외합니다.
-_GU_BARE = re.compile(
-    rf"(?<![가-힣])(?:{_GU.replace('|중', '')})\s*(?:쪽|지역|근처|동네|일대)?\s*(?:에\s*있는\s*)?"
-    r"(?:공영\s*)?(?:노상|노외)?\s*(?:주차장|주차\s*요금|공원)"
-    r"|우리\s*(?:동네\s*)?구(?:청)?\s*(?:의|에서\s*운영하는)?\s*(?:공영\s*)?(?:주차장|주차\s*요금|공원|조례)")
+_EXT_CRIMINAL_TRAP = re.compile(
+    r"경범죄\s*처벌법|형법|형사\s*처벌|경찰(?:에|로)\s*(?:바로\s*)?(?:송치|입건|고발)|검찰\s*송치|\b징역|징역형|운전면허\s*벌점|면허\s*벌점|범칙금"
+)
 
 
-def district_owned(question):
-    q = str(question)
-    if DISTRICT_OWNED.search(q) or (_GU_BARE.search(q) and not _SEOUL.search(q)):
+# 지명 바로 뒤의 거주·출신 표현("마포구에 사는데", "강남구 주민인데", "부산시에서 이사 온")은 질문 대상이 아님
+_RESIDENT_AFTER = re.compile(r"\s*(?:에\s*(?:사는|살고|살아|거주)|에서\s*(?:살다|이사|왔|온|올라)|\s*주민(?:인|이고|으로)|민(?:인|이고|으로))")
+# "형사처벌 받나요?"처럼 조례가 다루는 행위의 제재를 예/아니요로 묻는 질문은 막지 않음
+# (조례의 과태료 조항 인용 + "아니요, 형사처벌이 아니라 과태료" 안내가 맞음. 상위법명·형량·범칙금·벌점을 묻으면 차단)
+_CRIMINAL_YESNO = re.compile(r"형사\s*처벌\s*(?:을|도|까지)?\s*(?:받|대상|되|당하)\S*\s*\??\s*$")
+_CRIMINAL_DETAIL = re.compile(r"[가-힣]법(?:\s|에|상|률|으로|을|의|$)|징역|벌금|범칙금|벌점|송치|입건|고발|기준|형량|얼마|몇|어떤|무슨|절차")
+
+
+def _is_other_local_gov(question):
+    """특정 자치구·타 지자체의 조례·시설·요금·정책이나 조례 밖 형사처벌·범칙금을 묻는 질문인지 판별합니다.
+    질문자가 거주지나 배경만 언급하고 서울시 조례·시설을 명시적으로 묻는 경우는 통과시킵니다."""
+    if (_EXT_CRIMINAL_TRAP.search(question) and not re.search(r"서울(?:특별시|시)?\s*조례", question)
+            and not (_CRIMINAL_YESNO.search(question) and not _CRIMINAL_DETAIL.search(question))):
         return True
-    return bool(_REGION.search(q) and _TARGET.search(q) and not _SEOUL.search(q))
+    if _GU_BARE_OR_OWNED.search(question) and not _SEOUL_EXPLICIT.search(question):
+        return True
+    if not _OTHER_LOCAL_GOV.search(question):
+        return False
+    if _LOCAL_GOV_TARGET.search(question):
+        return True
+    if any(_RESIDENT_AFTER.match(question, m.end()) for m in _OTHER_LOCAL_GOV.finditer(question)):
+        return False
+    return not _SEOUL_EXPLICIT.search(question)
+
 
 _cache = {}
 
@@ -108,6 +130,8 @@ REWRITE_SYSTEM = """너는 서울특별시 조례 검색어 생성기다.
 - 둘 이상의 할인·감면을 함께 받는지 묻는 질문이면 '감면 사유가 둘 이상일 때 중복 감면' 검색어도 만든다.
 - 금지 행위 질문이면 그 위반에 대한 '과태료 부과' 검색어도 만든다.
 - 용어의 뜻·대상·범위를 묻는 질문이면 '정의' 검색어도 만든다.
+- 질문에 두 가지 이상의 쟁점·시설·조건(예: '또한 ~는?', 'A와 B를 함께 고려할 때', '전용주차구획 + 할인', '입장료 + 이용료')이 섞여 있으면, 각 쟁점·조항별로 서로 다른 검색어를 분리해 만든다.
+- '따릉이(공공자전거)' 대여·이용요금 질문은 '공공자전거 이용요금 시장 위임'으로 검색어를 만들고, '자전거주차장 요금표' 검색어는 만들지 않는다.
 - 답을 쓰지 말고 검색어만 만든다. 각 검색어는 20자 안팎.
 pseudo_article: 이 질문에 답이 되는 조례 조문이 있다면 어떻게 쓰여 있을지, 조례 문체로 한두 문장을 지어 쓴다.
   (예: "소유자등은 ~할 때에는 다음 각 호의 사항을 준수하여야 한다", "시장은 ~에 해당하는 경우 ~를 감면할 수 있다")
@@ -181,8 +205,14 @@ def _score(queries, chunks, vecs, docs, df, avg):
 
 
 # 조례 이름의 핵심어 → 질문에서 그 조례 대상을 직접 가리키는 표현
-_LAW_KEYWORDS = {"도시공원": r"공원", "자전거": r"자전거", "청년": r"청년",
-                 "금연": r"금연|흡연|담배", "동물보호": r"동물|반려|맹견|유기견|길고양이"}
+_LAW_KEYWORDS = {
+    "도시공원": r"공원|서울대공원|야영장|잔디광장|입장료|도시공원위원회|행정\(?2\)?부시장",
+    "자전거": r"자전거|활성화계획|따릉이",
+    "청년": r"청년",
+    "금연": r"금연|흡연|담배",
+    "동물보호": r"동물|반려|맹견|유기견|길고양이",
+    "주차장": r"주차장|부설주차장|노상주차장|노외주차장|주차구획|주차요금",
+}
 
 
 def retrieve(question, top_k=config.TOP_K, queries=None):
@@ -221,29 +251,36 @@ def expand_siblings(hits, max_total=None):
     """상위 근거와 같은 조에 속한 다른 항도 근거 후보로 덧붙입니다.
 
     예) 제7조 제1항(감면 사유)이 걸리면 제7조 제3항(중복 감면 금지)도 함께 보이게.
+    상위 SIBLING_FROM_TOP 외에, 같은 조의 항이 hits에 2개 이상 걸린 핵심 조도 나머지 항(제1항 등)을 보강합니다.
     """
     max_total = max_total or config.MAX_CONTEXT
     groups = _cache.get(config.CHUNK_UNIT + ":groups", {})
     out = list(hits)
     seen = {h["label"] for h in hits}
-    for h in hits[:config.SIBLING_FROM_TOP]:
-        for s in groups.get(h["group"], []):
+    grp_counts = Counter(h["group"] for h in hits)
+    target_groups = list(dict.fromkeys(
+        [h["group"] for h in hits[:config.SIBLING_FROM_TOP]]
+        + [h["group"] for h in hits if grp_counts[h["group"]] >= 2]
+    ))
+    for grp in target_groups:
+        for s in groups.get(grp, []):
             if len(out) >= max_total:
                 return out
             if s["label"] not in seen:
                 seen.add(s["label"])
-                out.append({**s, "score": 0.0, "cos": None, "sibling_of": h["label"]})
+                out.append({**s, "score": 0.0, "cos": None, "sibling_of": grp})
     return out
 
 
-# 조문 안의 같은 조례 참조: "제5조제4항", "제5조 제1항", "제1항"(같은 조 안). 「법」·법·영·규칙 조문은 제외
+# 조문 안의 같은 조례 참조: "제5조제4항", "제5조 제1항", "제1항"(같은 조 안). 「법」·법·영·규칙 조문과 개정이력([제26조에서 이동])은 제외
 _REF = re.compile(r"(제\d+조(?:의\d+)?)?\s?제(\d+)항|(제\d+조(?:의\d+)?)(?![의\d])")
 _EXTERNAL = re.compile(r"(」|법|영|규칙|시행령|시행규칙)$")   # 바로 앞이 다른 법령이면 제외
+_AMEND_HIST = re.compile(r"\[(?:제\d+조(?:의\d+)?에서\s*이동|종전\s*제\d+조|본조신설|전문개정|제목개정)[^\]]*\]|<개정[^>]*>|<신설[^>]*>")
 
 
 def _refs(chunk):
     """조각 본문이 가리키는 같은 조례의 조·항 라벨 후보를 돌려줍니다."""
-    body = chunk.get("context", chunk["text"]).split("\n", 1)[-1]
+    body = _AMEND_HIST.sub(" ", chunk.get("context", chunk["text"]).split("\n", 1)[-1])
     group = chunk.get("group", "")
     law = chunk.get("law", "")
     out = []
@@ -265,19 +302,47 @@ def _refs(chunk):
     return out
 
 
+_REV_REF_CUE = re.compile(r"에도\s*불구하고|준용|위반하여|과태료|감면|면제|제외|예외|아니하다|제한")
+
+
+def _rev_refs():
+    """역방향 참조 인덱스: target 조항을 예외·단서·과태료·준용으로 가리키는 같은 조례 조항 목록."""
+    key = config.CHUNK_UNIT + ":rev_refs"
+    if key in _cache:
+        return _cache[key]
+    _load()
+    groups = _cache.get(config.CHUNK_UNIT + ":groups", {})
+    by_label = {c["label"]: c for g in groups.values() for c in g}
+    rev = {}
+    for lab, c in by_label.items():
+        body = c.get("context", c["text"]).split("\n", 1)[-1]
+        if not _REV_REF_CUE.search(body):
+            continue
+        for ref in _refs(c):
+            targets = [ref] if ref in by_label else [x["label"] for x in groups.get(ref, [])[:2]]
+            for tgt in targets:
+                if tgt != lab:
+                    rev.setdefault(tgt, [])
+                    if lab not in rev[tgt]:
+                        rev[tgt].append(lab)
+    _cache[key] = rev
+    return rev
+
+
 def expand_refs(hits, max_total=None, hops=2):
-    """근거 조문이 '제○조제○항에 따라'처럼 가리키는 같은 조례 조항을 덧붙입니다.
+    """근거 조문이 가리키는 조항(정방향)과 근거 조문을 예외·과태료·준용으로 가리키는 조항(역방향)을 함께 덧붙입니다.
 
     예) 과태료 조항(제10조 제1항: '제5조제4항을 위반하여') → 제5조 제4항 → 제5조 제1항(금연구역 목록)
-    질문의 대상이 실제로 적용 범위에 드는지 모델이 확인할 수 있게 하기 위함입니다.
+    예) 원칙 조항(제1항) ← 예외·단서 조항('제1항에도 불구하고…')
     """
     max_total = max_total or config.MAX_CONTEXT
     groups = _cache.get(config.CHUNK_UNIT + ":groups", {})
     by_label = {c["label"]: c for g in groups.values() for c in g}
+    rev = _rev_refs()
     out = list(hits)
     seen = {h["label"] for h in hits}
     frontier = hits[:config.SIBLING_FROM_TOP]
-    for _ in range(hops):
+    for hop in range(hops):
         nxt = []
         for h in frontier:
             for ref in _refs(h):
@@ -290,11 +355,20 @@ def expand_refs(hits, max_total=None, hops=2):
                         item = {**c, "score": 0.0, "cos": None, "ref_of": h["label"]}
                         out.append(item)
                         nxt.append(item)
+            if hop == 0:                                      # 1-hop 역방향(예외·과태료·준용) 보강
+                for src_lab in rev.get(h["label"], [])[:2]:
+                    if len(out) >= max_total:
+                        return out
+                    if src_lab in by_label and src_lab not in seen:
+                        seen.add(src_lab)
+                        item = {**by_label[src_lab], "score": 0.0, "cos": None, "rev_ref_of": h["label"]}
+                        out.append(item)
+                        nxt.append(item)
         frontier = nxt
     return out
 
 
-_ANNEX_OF = re.compile(r"\((제\d+조(?:의\d+)?)\s*(?:제?(\d+)항)?\s*관련\)")       # 별표 제목의 '(제9조 제1항관련)'
+_ANNEX_OF = re.compile(r"\(제(\d+)조?(?:의(\d+))?\s*(?:제?(\d+)항)?\s*관련\)")       # 별표 제목의 '(제9조 제1항관련)' 및 오타 '(제21제2항 관련)' 포함
 _ANNEX_REF = re.compile(r"별표\s*(\d*)")
 _DEF_TERM = re.compile(r'"([^"]{1,20})"(?:이)?(?:란|라 함은|이라 함은)')
 
@@ -316,7 +390,8 @@ def _links():
             if " 별표" in lab:                                   # 별표 → 관련 본문
                 m = _ANNEX_OF.search(head.replace(" ", "")) or _ANNEX_OF.search(head)
                 if m:
-                    art, para = m.group(1), m.group(2)
+                    art = f"제{m.group(1)}조" + (f"의{m.group(2)}" if m.group(2) else "")
+                    para = m.group(3)
                     tgt = f"{law} {art} 제{para}항" if para else f"{law} {art}"
                     cands = [tgt] if tgt in labels else [x["label"] for x in groups.get(f"{law} {art}", [])][:2]
                     for t in cands:
@@ -386,15 +461,20 @@ SYSTEM = """너는 서울특별시 조례 질의응답 도우미다.
   계산이 필요한 질문은 원문 값 → 계산식 → 결과 순서로, 계산 과정이 보이게 한 문장에 쓴다.
 - 질문이 구체적인 수치(대수·인원·금액·기간·비율)를 주고 결과나 기준 충족 여부를 물으면, 근거의 기준·비율을 그 수치에 적용해
   계산한다. 결과값이 원문에 그대로 없어도 기준이 근거에 있으면 basis는 "있음"이다. 첫 문장에 최종 결과(예: 200대, 13명,
-  기준 미달로 위반)를 쓰고, 계산식은 "500대 × 40/100 = 200대"처럼 숫자·×·÷·+·−·= 로 쓴다(과반수는 "12명의 과반수 = 7명"). 여러 인원·품목·시간 구간(기본 시간 + 초과 시간)을 합산할 때는 각 항목 단가·가산·할인을 표에서 하나씩 확인해 합산 결과를 검산하고, '2시간당'·'1구획당'처럼 기본 요금 단위가 묶음 기준이면 그 묶음 요금을 시간 수로 다시 곱하지 않는다.
+  기준 미달로 위반)를 쓰고, 계산식은 "500대 × 40/100 = 200대"처럼 숫자·×·÷·+·−·= 로 쓴다(과반수는 "12명의 과반수 = 7명"). 여러 인원·품목·시간 구간(기본 시간 + 초과 시간)을 합산할 때는 각 항목 단가·가산·할인을 표에서 하나씩 확인해 합산 결과를 검산한다. 요금표 기본 단위가 '2시간' 등 N시간 묶음이면 '시간당 이용료'는 반드시 기본요금 ÷ N으로 구하고 그 묶음 요금을 시간 수로 다시 곱하지 않으며, '야간 가산(토·공휴일 제외)' 같은 괄호 제외 단서는 먼저 적용 여부를 가린 뒤 가산한다. 시간제 환산 요금과 1일 상한 요금이 함께 있으면 둘을 비교해 최종 납부액을 결론에 쓴다.
+- 경계값과 기간 기산을 정확히 지킨다: '이상·이하·이내'는 경계값을 포함하고, '초과·미만'은 경계값을 제외한다(예: '6세 미만' 면제에 10세는 미해당). 시작일 포함 기간 기산 시 'N월 1일부터 7일 이상'은 시작일을 1일째로 세어 7일째인 N월 7일(1 + 7 - 1 = 7일)에 기간이 충족된다.
+- 근거 조항 본문 안에 상위 법령 조문(예: '「국민건강증진법」 제9조의5 및 같은 법 시행령 제16조의5', '법 제36조')이 적혀 있으면, 답변 본문에서 그 상위 법령 근거도 생략하지 말고 함께 밝힌다(단, evidence에는 서울시 조례 조항만 고른다).
 - 근거 조항이 '제○조제○항을 준용한다'고 적고 [근거]에 그 준용 대상 조항이 함께 있으면, 준용 대상 조항의 요건·단서·예외까지 그대로 적용해 결론을 내린다. 또한 근거 조항이나 별표가 다른 법령·시행규칙·고시·공고를 준용하거나 따르도록 정한 경우에는 그 위임·준용을 정한 이 조례의 조항(또는 별표)을 evidence로 고르고, 어느 법령·공고를 따르는지 안내한다.
 - 답변할 때 '~제○조를 봐야 합니다'처럼 조항 번호 안내로만 끝내지 말고, 그 근거 조항이 실제로 정한 구체적 내용(대상 포함 여부, 기준·수치·별표/별도 명칭 등)을 직접 풀어서 답한다.
+- 근거 끝에 '(질문과 관련된 호: …)'가 표시돼 있으면 그 호부터 우선 확인하되, 최종 판단은 근거 본문 전체를 보고 내린다.
 - 근거 조항에 있는 비슷한·상위 제도(예: 다자녀 주차요금 감면, 일반 사진·영상 촬영 대관 및 이행보증금)를 질문이 묻는 조례에 없는 특정 대상·제도(예: 출산 축하 포인트 적립, 드론 촬영 허가 보증금)로 억지 연결하지 않는다. 질문의 핵심 대상·제도가 조례에 없으면 basis는 "없음", found는 false로 한다.
-- 질문이 둘 이상을 물으면("~와 ~를 각각", "또한 ~는?") 물음마다 답하는 문장을 빠짐없이 쓴다(문장 수 제한보다 우선).
+- 질문이 둘 이상을 물으면("~와 ~를 각각", "또한 ~는?") 물음마다 답하는 문장을 빠짐없이 쓰고, 각 문장의 evidence에 그 물음을 직접 정한 조항을 맨 앞에 넣는다(문장 수 제한보다 우선).
+- 질문이 특정 항목들(예: A·B·C)의 기준·동일 여부를 물으면 질문한 항목들만 정확히 비교해 '동일한 기준(예: 모두 1년 이내)이 적용됩니다'처럼 직접 결론 내리고, 조문에 같이 적힌 묻지 않은 다른 항목(D)이나 다른 위원회·다른 제도·다른 시설 규정을 끌어와 '동일하지 않다'고 결론을 뒤집거나 불필요하게 덧붙이지 않는다.
+- '공공자전거(따릉이)' 대여·이용요금(제12조의2·제12조의3)과 '자전거주차장' 주차요금(별표, 제9조: 1시간 200원, 1일 1,000원, 월 15,000원)은 서로 다른 제도이므로, 따릉이 이용권·정기권 요금 질문에 자전거주차장 별표·제9조를 절대 적용·인용하지 않는다. 대신 조례 제12조의2 제9항이 '이용요금 등 필요한 사항은 시장이 따로 정한다'고 위임하고 있으므로 반드시 basis="있음", found=true로 하여 제12조의2 제9항을 인용하고 시장이 따로 정함을 안내한다.
 - 첫 문장은 "네"나 "아니요"로 시작하지 말고 결론(값·결과·가능 여부)을 바로 쓴다. (앞머리 "네,/아니요,"는 시스템이 붙인다)
 - 이어서 결론을 뒷받침하는 조건·숫자(금액·비율·나이)와 '다만' 같은 단서·예외를 쓴다. 질문과 관계없는 절차·위임·이의제기 설명은 쓰지 않는다.
 - 일반 시민이 이해할 수 있는 쉬운 말로 2~4문장. 숫자는 근거에 적힌 값 그대로 쓴다.
-- 근거 조항이 세부 기준·방법을 '시장이 따로 정한다', '규칙으로 정한다'고 위임했으면 그 사실을 한 문장으로 알려 준다.
+- 질문이 묻는 사항(세부 기준·운영시간·절차·금액 등) 자체가 '시장이 따로 정한다', '규칙으로 정한다'고 위임돼 있으면 그 사실을 한 문장으로 알려 준다. 단, 조항이 지원 항목·대상·요건을 각 호로 한정해 열거('그 밖에 ~가 정하는 사항' 없이)했고 다른 항이 '절차와 방법'만 위임한 경우에는, 조례상 지원 항목·대상은 열거된 것들로 한정된다고 명확히 답한다('절차·방법 위임'을 들어 항목 자체가 늘어날 수 있다고 추측하거나 결론을 흐리지 않는다).
 - 질문이 부정형("~안 되나요?", "못 ~나요?", "~안 해도 되나요?")이면 네/아니요가 헷갈리므로 conclusion은 "해당없음"으로 하고,
   첫 문장에 "~할 수 있습니다/~해야 합니다"처럼 결론을 긍정문으로 분명히 쓴다.
 - 질문이 선택형("A인가요, 아니면 B인가요?")이면 conclusion은 "해당없음"으로 하고, 첫 문장에 어느 쪽인지
@@ -402,19 +482,20 @@ SYSTEM = """너는 서울특별시 조례 질의응답 도우미다.
   단, 근거가 A·B 중 어느 쪽인지 정하지 않았으면(지급 방식·서류·절차 같은 세부가 근거에 없으면) basis는 "없음"이다.
 - '다만', 괄호( ) 안의 단서는 원칙에 붙는 조건이다. 단서가 적용 범위를 넓히는지('~도 포함한다', '~를 포함') 좁히는지
   ('~는 제외한다', '~에 한정한다', '그러하지 아니하다') 정확히 읽고, 결론을 원칙과 단서를 함께 적용한 결과로 쓴다.
+  특히 법령의 이중부정 단서('~하여야 한다 / ~하지 못한다 / ~면하지 못한다. 다만, X의 경우는 그러하지 아니하다')는 앞 문장 전체의 주된 서술어(결론)를 정반대로 뒤집는다(중간의 '제외하고는' 절만 뒤집는 것이 아니다). 예) "A를 증명한 경우를 제외하고는 손해배상 책임을 면하지 못한다. 다만, X의 경우는 그러하지 아니하다" → 주된 서술어('책임을 면하지 못한다')를 부정하므로 X의 경우에는 A 입증과 무관하게 '손해배상 책임을 면한다(책임을 지지 않는다)'가 결론이다. 또한 '~하여야 한다'(의무)와 '~할 수 있다'(재량)를 정확히 구분해 답한다.
   예) "A 소지자는 면제(다만, B 시설은 C 소지자를 포함)" → B 시설에서도 A 소지자는 면제이고, C 소지자도 추가로 면제.
-- 감면·혜택이 둘 이상 겹치는 질문이면, 근거에 중복 적용을 정한 조항이 있는지 먼저 확인하고 그 조항에 따라 답한다.
+- 감면·혜택이 둘 이상 겹치는 질문이면, ① 근거에 중복 적용을 정한 조항(예: '높은 하나만 적용')이 있으면 그 조항에 따라 최종 감면율을 첫 문장에 명확히 결론 내리고, ② 중복 적용 규정이 조례에 따로 없더라도 하나라도 '전액 감면(면제)' 사유에 해당하면 최종 결론은 반드시 '전액 감면(100% 감면)'으로 첫 문장에 단정한다('중복 규정이 없어 확정할 수 없다'고 하지 말고 전액 감면 적용을 결론 내린 뒤, '등록대행 수수료는 감면 제외' 같은 본문 단서를 함께 쓴다).
 - 다른 조례의 조항을 끌어와 섞지 않는다. 질문이 묻는 조례의 근거만 쓴다.
-- 결론 문장의 evidence에는 결론을 직접 정한 조항을 맨 앞에 둔다. 답 전체에서 쓰는 조항은 결론에 꼭 필요한 1~3개로 줄이고, 부수 설명용 조항은 쓰지 않는다.
+- 결론 문장의 evidence에는 결론을 직접 정한 조항을 맨 앞에 둔다. 원칙 조항과 예외·단서·적용요건 조항을 함께 사용해 답했다면, 사용한 조항을 모두 evidence에 빠짐없이 넣는다(답변에 쓰지 않은 부수 조항은 넣지 않으며 전체 1~3개 이내로 유지).
 - 질문의 장소·대상·상황에 어떤 규정(과태료·감면·금지 등)이 적용된다고 답하려면, 그 장소·대상이 근거 조항의 적용 범위
   (지정 대상 목록, 감면 대상 목록 등)에 실제로 적혀 있어야 한다. 적혀 있지 않으면 적용된다고 추측하지 말고 found를 false로 한다.
 - 질문한 핵심 대상·주제가 조례 6종 어디에도 직접 나와 있지 않으면 found를 false로 한다 (단, 질문의 대상이 조문에 직접 나와 있고 세부 운영시간·금액·기준·절차만 시장·규칙·고시·다른 법령에 위임·준용한 경우는 found를 true로 하여 그 위임·준용 조항을 인용한다).
-- 자치구(OO구) 조례나 규칙은 근거로 쓰지 않는다.
+- 질문이 서울의 특정 자치구(강남구·서초구·마포구 등 25개 구)나 타 시·도(부산시·경기도·수원시 등)가 운영하는 시설·요금·과태료·지원·조례·규칙을 묻는 경우, 서울시 조례로 대신 답하지 말고 반드시 basis="없음", found=false로 한다(질문자가 거주지만 밝히면서 서울시 조례·서울대공원·서울시 관리 시설을 명시적으로 묻는 경우만 예외). 자치구(OO구) 조례나 규칙은 절대 근거로 쓰지 않는다.
 - basis 필드는 답을 쓰기 전에 먼저 정한다. 질문의 핵심(묻는 대상·제도·행위)이 근거에 직접 나와 있고, 답할 규정 또는 위임·준용 조항이 있는가?
   · "있음": 질문이 묻는 대상(예: 반려견 놀이터, 자전거보관소, 공영주차장)이 근거 조문에 직접 나와 있으며,
     질문이 묻는 내용(규정·수치·기준)이 조문에 있거나, 혹은 세부 내용(운영시간·구체 금액·규격·절차 등)을
-    '설치 및 운영에 필요한 사항은 시장이 따로 정한다'처럼 포괄 위임·개별 위임·준용('시장·구청장이 따로 정한다', '규칙·고시·공고로 정한다', '예산의 범위에서', '다른 법령·공고를 준용한다')해 둔 경우에도 반드시 "있음"(found=true)이다!
-    (예: "반려견 놀이터 운영시간은?" → 조문에 '운영시간' 단어가 없어도 '반려견 놀이터 설치·운영에 필요한 사항은 시장이 따로 정한다'는 위임 조항이 있으므로 "있음"!)
+    '설치 및 운영에 필요한 사항은 시장이 따로 정한다'처럼 포괄 위임·개별 위임·준용('시장·구청장이 따로 정한다', '규칙·고시·공고로 정한다', '예산의 범위에서', '가이드라인을 마련할 수 있다', '다른 법령·공고를 준용한다')해 둔 경우에도 반드시 "있음"(found=true)이다!
+    (예: "반려견 놀이터 운영시간은?" → 제29조 제3항, "따릉이 이용권 요금은?" → 제12조의2 제9항, "청년 대중교통비 한도는?" → 제15조 제3항(예산의 범위), "출입안내 표시판 규격은?" → 제7조의4 제3항(가이드라인) 모두 "있음"!)
     이때는 조례에 구체 수치가 정해져 있지 않다는 점과 누가/어디서 정하는지를 안내하고
     (예: "조례에는 운영 시간이 정해져 있지 않습니다. 제29조 제3항에 따라 시장이 따로 정하므로 서울시나 해당 시설 안내에서 확인하세요."),
     위임·준용을 직접 정한 조항(1~2개)만 evidence로 고른다 (같은 조의 불필요한 다른 항은 넣지 않는다).
@@ -426,8 +507,7 @@ SYSTEM = """너는 서울특별시 조례 질의응답 도우미다.
     - B가 조항에 직접 나와 있지 않은 별개 대상·수단·행위(예: 조문에 '사진·영상'만 있는데 '드론'을 묻는 경우)일 때, B에 대한 값·절차·의무(얼마, 몇, 해야 하나요)를 물으면 "없음".
       ("조항은 A만 정하므로 B는 해당하지 않습니다" 같은 추론으로 답하지 않는다)
     - 조문에 대상 X는 직접 나와 있고 질문이 X의 세부 항목(운영시간, 요금 등)만 묻는데 조문이 'X에 필요한 사항은 시장/규칙으로 정한다'고 위임한 경우는 "있음".
-    - B가 해당되는지(예/아니요)를 묻고, 조항이 기준(나이·면적·대수)이나 대상 목록을 명시해 B가 그 밖에 있음이
-      분명하면 "있음"(근거 있는 '아니요')이다. 조항이 B를 명시적으로 제외·한정·금지한 경우도 "있음".
+    - B가 해당되는지(예/아니요)를 묻고, 조항이 기준(나이·기간·개월·면적·대수·인원)이나 대상·심의 목록 또는 포괄 요건('시장이 회의에 부치는 사항' 등)을 명시해 B의 해당 여부나 요건 충족 여부를 판단할 수 있으면 반드시 "있음"(found=true)이다. 특히 기간·나이·수치 요건 미달(예: 6개월 이상 요건에 4개월·6개월 미만 입원)로 '요건에 해당하지 않아 할 수 없다'고 결론이 나는 경우에도 조문에 따라 판단한 것이므로 반드시 basis="있음", found=true로 답한다. 조항이 B를 명시적으로 제외·한정·금지한 경우도 "있음".
 """ + (ANSWER_FRAMES if config.USE_ANSWER_FRAMES else "") + """
 결과는 JSON으로 낸다."""
 
@@ -435,8 +515,15 @@ REPAIR_SYSTEM = SYSTEM + """
 
 [추가 지시] 직전 답변이 검증에서 '근거에 없는 내용이 있다'고 지적됐다. 검증은 직전 답변의 문장별 evidence로 고른 근거만 보고 이뤄졌다.
 - 근거를 잘못 골랐을 수 있으니, 전체 [근거]에서 답의 내용이 실제로 적힌 조항을 다시 확인해 고른다.
-- 지적된 문장은 고쳐 쓰지 말고 삭제한다. 새로운 주장(예: '~는 적용되지 않는다')을 덧붙이지 않는다.
-- 그래도 질문에 답할 수 없으면 found를 false로 한다."""
+- 지적된 결론 오류(단서·이중부정·경계값·계산·위임 과해석)는 원문과 대조해 정확한 결론으로 바로잡아 쓰고, 지적된 부수 문장은 삭제한다. 새로운 추측을 덧붙이지 않는다.
+- 질문의 일부 쟁점만 조례에 없을 때는 근거가 있는 핵심 질문 부분만 정확히 답하고(없는 부분만 '규정이 없다'고 짧게 구분), 유효한 조항이 있는데도 섣불리 found=false로 뒤집지 않는다.
+- 그래도 질문 전체에 답할 근거가 없으면 found를 false로 한다."""
+
+SAFE_VERDICT_SYSTEM = SYSTEM + """
+
+[보수적 판결 지시] 직전 답변들이 검증을 통과하지 못했다. [확정 인용 조항]의 원문 문언만 그대로 옮기듯이 가장 보수적으로 1~2문장만 다시 작성하라.
+- [확정 인용 조항] 밖의 추론·확대해석·계산 과장을 일절 붙이지 말라.
+- 근거에서 직접 확인할 수 있는 사실(또는 시장·규칙 위임 사실)만 정확히 적고, 조항에 실제로 근거가 없으면 found를 false로 하라."""
 
 def _schema(hits):
     """응답 스키마. evidence는 이번에 보여 준 근거의 조항 이름 중에서만 고를 수 있습니다(enum).
@@ -478,15 +565,69 @@ def _schema(hits):
     return schema
 
 
-def _context(hits):
-    """근거마다 경계를 분명히 표시합니다."""
-    return "\n\n".join(f'<근거 조항="{h["label"]}">\n{h.get("context", h["text"])}\n</근거>' for h in hits)
+_HO_LINE = re.compile(r"^\s*(\d+(?:의\d+)?)\.\s")
 
 
-def _ask(system, user, hits, effort=None):
+def _related_items(hit, question, min_items=5, keep=3):
+    """호가 5개 이상인 긴 항에서 질문과 글자 2-gram IDF 겹침이 높은 호 번호(최대 3개)를 찾아 표시합니다."""
+    if not question:
+        return []
+    text = hit.get("context", hit["text"])
+    lines = text.splitlines()
+    head_lines, items = [], []
+    for ln in lines:
+        m = _HO_LINE.match(ln)
+        if m:
+            items.append([m.group(1), ln])
+        elif items:
+            items[-1][1] += " " + ln.strip()
+        else:
+            head_lines.append(ln)
+    if len(items) < min_items:
+        return []
+    chunks, _, _, df, _ = _load()
+    n = len(chunks)
+    head = set(_bigrams(" ".join(head_lines)))
+    local = Counter(g for _, body in items for g in set(_bigrams(body)))
+    common = {g for g, c in local.items() if c >= max(2, len(items) * 0.25)}
+    q = set(_bigrams(question)) - head - common
+    if not q:
+        return []
+    picked = []
+    for _ in range(keep):
+        best, best_sc, best_g = None, 0.0, set()
+        for num, body in items:
+            if num in picked:
+                continue
+            g = q & set(_bigrams(body))
+            if not g:
+                continue
+            sc = sum(math.log(1 + (n - df[x] + 0.5) / (df[x] + 0.5)) for x in g)
+            if sc > best_sc:
+                best, best_sc, best_g = num, sc, g
+        if best is None or best_sc < 6.0:
+            break
+        picked.append(best)
+        q -= best_g
+    return picked
+
+
+def _context(hits, question=""):
+    """근거마다 경계를 분명히 표시합니다. 호가 많은 긴 항에는 질문 관련 호 힌트를 덧붙입니다."""
+    blocks = []
+    for h in hits:
+        body = h.get("context", h["text"])
+        rel = _related_items(h, question) if question else []
+        hint = f"\n(질문과 관련된 호: {', '.join(r + '호' for r in rel)})" if rel else ""
+        blocks.append(f'<근거 조항="{h["label"]}">\n{body}{hint}\n</근거>')
+    return "\n\n".join(blocks)
+
+
+def _ask(system, user, hits, effort=None, temperature=0.0):
     import upstage
     out = json.loads(upstage.chat([{"role": "system", "content": system},
                                    {"role": "user", "content": user}], response_format=_schema(hits),
+                                  temperature=temperature,
                                   reasoning_effort=(effort or config.ANSWER_REASONING) or None))
     return _assemble(out)
 
@@ -498,18 +639,49 @@ def _decision(o):
     return ("있음", (o.get("evidence") or [None])[0])
 
 
-def _ask_consistent(system, user, hits, trace):
-    """같은 질문에 답을 N개 동시에 만들어 판단을 다수결로 정합니다 (자기 일관성).
-    동시에 호출하므로 응답 시간은 답 1개와 비슷합니다. 판단이 갈린 것 자체도 trace에 남깁니다."""
+_HARD_CALC_Q = re.compile(r"합산|연속|초과.*(?:할인|시간)|가산|보궐|결원|임기.*(?:언제|며칠)|과반수|총\s*(?:입장료|이용료|요금)|각각\s*\d|계산|공고.*(?:며칠|일)|며칠.*공고")
+_HARD_COND_Q = re.compile(r"원칙.*예외|단서|불구하고|그러하지|함께\s*고려|별개로|주의의무|면제되는\s*건가|허가.*무관|의무가\s*(?:여전히|있는|별도)|열지\s*않아도|않아도\s*되|해당하지\s*않|면하지\s*못|면할\s*수|중복.*감면|감면.*중복")
+
+
+def _auto_effort(question):
+    """복합 계산·이중부정 단서·다중 조건 질의에만 선별적으로 AUTO_REASONING('low')을 켭니다."""
+    if config.ANSWER_REASONING:
+        return config.ANSWER_REASONING
+    if not config.AUTO_REASONING:
+        return None
+    nums = _values(question)
+    if (len(nums) >= 2 and len(question) >= 35) or (_HARD_CALC_Q.search(question) and len(question) >= 35):
+        return config.AUTO_REASONING
+    if _HARD_COND_Q.search(question) and len(question) >= 45:
+        return config.AUTO_REASONING
+    return None
+
+
+def _ask_consistent(system, hits, question, trace, effort=None):
+    """같은 질문에 근거 순서(정순·역순·셔플)와 온도를 달리해 답을 N개 동시에 만들고 판단을 다수결로 정합니다."""
     n = config.CONSISTENCY_N
     if n < 2:
-        return _ask(system, user, hits)
+        user = f"[근거]\n{_context(hits, question)}\n\n[질문]\n{question}"
+        return _ask(system, user, hits, effort=effort)
+    import random
     import time as _t
     from collections import Counter
     from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+
+    def juror_job(k):
+        if k == 0:
+            j_hits, temp = hits, 0.0
+        elif k == 1:
+            j_hits, temp = list(reversed(hits)), 0.0
+        else:
+            j_hits = random.Random(42 + k).sample(hits, len(hits))
+            temp = 0.35
+        user = f"[근거]\n{_context(j_hits, question)}\n\n[질문]\n{question}"
+        return _ask(system, user, j_hits, effort=effort, temperature=temp)
+
     # 첫 답이 나오면 나머지는 CONSISTENCY_GRACE_SEC 초만 더 기다립니다 (가장 느린 답을 기다리지 않음 → 응답 시간 상한)
     ex = ThreadPoolExecutor(n)
-    futs = [ex.submit(_ask, system, user, hits) for _ in range(n)]
+    futs = [ex.submit(juror_job, k) for k in range(n)]
     done, pending = wait(futs, return_when=FIRST_COMPLETED)
     deadline = _t.time() + config.CONSISTENCY_GRACE_SEC
     while pending and _t.time() < deadline:
@@ -562,14 +734,14 @@ _CALC = re.compile(r"[×x*=+/÷]|합계|계산|곱하|나누|더하")
 
 
 _DELEGATED = re.compile(
-    # '예산의 범위에서 지원할 수 있다'는 재원 한도이지 위임이 아니므로 넣지 않습니다(가상 혜택 질문이 새는 원인)
-    r"위임|준용|시행규칙|시행령|고시|공고|다른\s*법령"
+    r"위임|준용|시행규칙|시행령|고시|공고|예산의\s*범위|다른\s*법령|가이드라인"
     r"|(?:따로|별도로|규칙(?:으로|에서)|조례(?:으로|에서)?|시장이|구청장이|관리자\S*)\s*(?:따로\s*)?정(?:한|하|할|해\s*두|해지)"
 )
 
 
-# '기준에 해당하지 않습니다'처럼 규정을 적용한 결론(해당·적용·충족 여부)은 규정 부재가 아닙니다.
-_APPLY_NEG = re.compile(r"해당하지|해당되지|적용되지|적용하지|충족하지|포함되지|속하지|대상이 아니")
+# '기준에 해당하지 않습니다'·'규정에 맞지 않습니다'·'예외 사유가 존재하지 않습니다'는 규정을 적용한 결론이므로 규정 부재가 아닙니다.
+_APPLY_NEG = re.compile(r"해당하지|해당되지|적용되지|적용하지|충족하지|포함되지|속하지|대상이 아니|맞지|부합하지|적합하지|일치하지|어긋나|존재하지")
+_EXCEPT_NEG = re.compile(r"예외\s*(?:사유|조항|규정|기준)?[이가은는]?\s*[^.。]{0,20}?(?:없습니다|없어|존재하지\s*않)")
 
 
 # 첫 절에서 이미 적극적 규정('~해야/정하고 있/규정되어 있...')을 답한 뒤 부수 항목이 없음을 적는 경우는 규정 부재에서 제외('정할 수 있' 위임 제외)
@@ -584,31 +756,11 @@ def _claims_no_rule(out):
     hit = any(
         not _CANNOT.search(m.group(0))
         and not _APPLY_NEG.search(m.group(0))
+        and not _EXCEPT_NEG.search(first[max(0, m.start() - 20):m.end() + 5])
         and not ("," in first[:m.start()] and _AFFIRM_CLAUSE.search(first[:m.start()].rsplit(",", 1)[0]))
         for m in _NO_RULE.finditer(first)
     )
     return hit and not _DELEGATED.search(out.get("answer", "") or first)
-
-
-# 조문 원문에 있는 위임·준용 문구 (답변 문장이 아니라 근거 조항 쪽에서 확인)
-_DELEG_CLAUSE = re.compile(r"(?:따로|별도로)\s*정한다|(?:시행)?규칙으로\s*정한다|시장이\s*정한다|고시한다|위임한다|준용한다")
-_DELEG_SAYS = re.compile(r"따로\s*정|별도로\s*정|규칙으로\s*정|시장이\s*정|위임|준용")
-
-
-def _delegation_answer(out, hits):
-    """모델이 basis를 '없음'으로 매겼어도, 고른 근거 조항이 실제로 세부를 위임·준용하고 답변이 그 위임을 안내하면
-    운영진 공지(11/19)상 '위임 조항 인용 + 안내'가 정답이므로 답을 살립니다."""
-    by_label = {h["label"]: h for h in hits}
-    ctx = " ".join(by_label[l].get("context", "").split("\n", 1)[-1]
-                   for l in out.get("evidence", []) if l in by_label)
-    ans = out.get("answer", "")
-    # 답이 스스로 "위임 범위에 포함되지 않는다"고 말하면 위임 안내가 아니라 규정 부재입니다 (예: 앱 비밀번호)
-    if _DELEG_NOT_COVER.search(ans):
-        return False
-    return bool(_DELEG_CLAUSE.search(ctx)) and bool(_DELEG_SAYS.search(ans))
-
-
-_DELEG_NOT_COVER = re.compile(r"포함되어\s*있지\s*않|포함되지\s*않|해당하지\s*않|관련이\s*없|적용\s*대상이\s*아니|다루지\s*않")
 
 
 # ---- 계산 검사: 답변에 쓴 계산식(A × B = C)을 코드가 직접 계산해 결과를 대조합니다.
@@ -758,6 +910,8 @@ def _number_issues(out, hits, question):
         for v in _values(text):
             if v in allowed_q or v <= 1 or v in src_vals or v in calc_ok:
                 continue
+            if v == 100.0 and "전액" in all_used and re.search(r"100\s*(?:%|퍼센트)", text):
+                continue
             if v == 2 and 1.0 in src_vals and re.search(r"2\s*(?:개|명|회|건|차례|가지|곳|종)\s*(?:이상|초과|부터)", text):
                 continue
             if scenario and _derivable(v, used_vals | allowed_q | calc_ok, scenario):
@@ -769,53 +923,97 @@ def _number_issues(out, hits, question):
 _YESNO_HEAD = re.compile(r"^\s*(네|예|아니요|아니오)\s*[,.]\s*")
 
 
-_NEG_Q = re.compile(r"(?:^|\s)(?:안|못)(?:\s+\S|해|하면|되|돼|받|가도|써도)|않(?:아|나요|을까|는)|없(?:나요|을까|어요\?|죠)")
+_NEG_Q = re.compile(r"(?:^|\s)(?:안|못)(?:\s+\S|해|하면|되|돼|받|가도|써도)|않(?:아|나요|을까|는)|없(?:나요|을까|어요\?|죠|음\?|냐)")
 
 
 # 선택형 질문: "A인가요, 아니면 B인가요?" → 네/아니요가 어느 쪽에 대한 답인지 모호
 _CHOICE_Q = re.compile(r"아니면|혹은")
+_WH_Q = re.compile(r"얼마|몇|며칠|언제|어디|무엇|뭔가|뭐|누가|누구|어떻게|어떤|어느|왜")
+_NEG_FIRST_END = re.compile(
+    r"(?:지\s?않아도\s?(?:됩니다|돼요|된다)|않아도\s?됩니다|지\s?않습니다|않습니다|없습니다|없어요"
+    r"|안\s?됩니다|수\s?없습니다|필요가?\s?없|해당하지\s?않|불가합니다|받지\s?않)[^가-힣]*$"
+)
+
+
+def _is_wh_only(question):
+    clauses = [c for c in re.split(r"[?？]", question) if c.strip()]
+    asks = clauses if question.strip().endswith(("?", "？")) else clauses[:-1] or clauses
+    return bool(asks) and all(_WH_Q.search(c) for c in asks)
 
 
 def _no_yesno(question):
-    """네/아니요 앞머리를 붙이지 않을 질문: 부정형('못 받나요?')과 선택형('A인가요, 아니면 B인가요?')."""
-    return bool(question) and bool(_NEG_Q.search(question) or _CHOICE_Q.search(question))
+    """네/아니요 앞머리를 붙이지 않을 질문: 부정형('못 받나요?'), 선택형('A인가요, 아니면 B인가요?'), 순수 의문사('얼마/몇/언제')."""
+    return bool(question) and bool(_NEG_Q.search(question) or _CHOICE_Q.search(question) or _is_wh_only(question))
 
 
 def _finalize(out, question=""):
     """앞머리 '네,/아니요,'는 모델이 따로 고른 conclusion으로 코드가 붙입니다 (본문과 모순 방지).
-    부정형·선택형 질문에는 네/아니요가 뜻을 헷갈리게 하므로 붙이지 않습니다."""
+    부정형·선택형·의문사 질문에는 네/아니요를 붙이지 않으며, 첫 문장 극성과 '네'가 어긋나면 교정합니다."""
     text = _YESNO_HEAD.sub("", out["answer"]).strip()
     c = out.get("conclusion")
     if _no_yesno(question):
         return text
+    first = re.split(r"(?<=[.다요])\s+", text, maxsplit=1)[0]
+    if c == "네" and _NEG_FIRST_END.search(first):
+        c = "아니요"
     return f"{c}, {text}" if c in ("네", "아니요") else text
 
 
 def _verify_ctx(out, hits):
-    """검증용 근거: 답변 문장들이 고른 근거 전체 (출력용 citation의 개수 제한을 적용하지 않음)."""
+    """검증용 근거: 답변 문장들이 고른 근거 + 같은 조의 형제 항(hits에 있는 것, 최대 8개).
+    예) 제10조의3 제2항만 인용하고 같은 조 제3항의 사실(위원장·부위원장)을 함께 쓴 정당한 답을 오거절하지 않습니다."""
     by_label = {h["label"]: h for h in hits}
-    return [by_label[l] for l in out.get("evidence", []) if l in by_label and not DISTRICT.search(l)]
+    used = [by_label[l] for l in out.get("evidence", []) if l in by_label and not DISTRICT.search(l)]
+    seen = {h["label"] for h in used}
+    used_groups = {h["group"] for h in used}
+    for h in hits:
+        if len(used) >= 8:
+            break
+        if h["group"] in used_groups and h["label"] not in seen and not DISTRICT.search(h["label"]):
+            seen.add(h["label"])
+            used.append(h)
+    return used
 
 
-def _pick(out, hits):
+_DEF_Q = re.compile(r"정의|뜻|의미|무엇을\s*말|누구를\s*말|개념|용어")
+
+
+def _is_def_chunk(h):
+    return "(정의)" in h.get("context", h["text"]).split("\n", 1)[0]
+
+
+def _pick(out, hits, question=""):
+    """문장별 주 근거(evidence[0])와 별표를 우선 보존하고, 정의 조항(제2조)이 비정의 질문에서 핵심 조항을 밀어내지 않게 합니다."""
     by_label = {h["label"]: h for h in hits}
-    used = [by_label[lab] for lab in out.get("evidence", []) if lab in by_label]
+    sents = out.get("sentences", [])
+    primary = [ev[0] for s in sents for ev in [s.get("evidence", [])] if ev]
+    annexes = [lab for s in sents for lab in s.get("evidence", []) if " 별표" in lab]
+    secondary = [lab for s in sents for lab in s.get("evidence", [])[1:]]
+    ordered = list(dict.fromkeys(primary + annexes + secondary + out.get("evidence", [])))
+    used = [by_label[lab] for lab in ordered if lab in by_label]
     used = [h for h in used if not DISTRICT.search(h["label"])]
     if used:
         # 첫 근거(결론 근거)와 같은 조례만 인용합니다. 다른 조례 조항이 섞이는 것을 막고 인용 수를 제한합니다.
         law = used[0]["law"]
         used = [h for h in used if h["law"] == law]
-        used = list({h["label"]: h for h in used}.values())[:config.MAX_CITATIONS]
+        used = list({h["label"]: h for h in used}.values())
+        if len(used) > config.MAX_CITATIONS and not _DEF_Q.search(question or ""):
+            subst = [h for h in used if not _is_def_chunk(h)]
+            defs = [h for h in used if _is_def_chunk(h)]
+            if subst:
+                used = subst + defs
+        used = used[:config.MAX_CITATIONS]
     return used
 
 
 _SAME_ART_PARA = re.compile(r"(?<![조\d])(?<!조 )제\s?(\d+)\s?항")
 _PARA_LABEL = re.compile(r"^(.*제\d+조(?:의\d+)?) 제(\d+)항$")
+_OP_CROSS_REF = re.compile(r"(?<![법영칙」]\s)(?<![법영칙」])(제\d+조(?:의\d+)?)(?:\s?제(\d+)항)?(?=(?:에\s*따른|에\s*따라|을\s*준용|를\s*준용|의\s*(?:규정을\s*)?준용))")
 
 
-def _with_sibling_refs(citation):
-    """인용한 항의 본문이 같은 조의 다른 항을 가리키면('제1항에 따라', '제2항의') 그 항도 인용합니다.
-    해당 항이 적용 범위·대상을 정하는 경우가 많아, 둘을 함께 내야 근거가 완전합니다."""
+def _with_sibling_refs(citation, hits=None):
+    """인용한 항의 본문이 같은 조의 다른 항('제1항에 따라') 또는 검색된 같은 조례의 직접 연결 조항('제11조에 따른', '준용')을
+    가리키면 CITE_SIBLING_MAX_TOTAL(3개) 상한 안에서 보강합니다."""
     _load()
     groups = _cache[config.CHUNK_UNIT + ":groups"]
     by_label = {c["label"]: c for g in groups.values() for c in g}
@@ -831,6 +1029,22 @@ def _with_sibling_refs(citation):
                 return out
             if ref != lab and ref in by_label and ref not in out:
                 out.append(ref)
+    if hits and len(out) < config.CITE_SIBLING_MAX_TOTAL:
+        hit_labels = {h["label"] for h in hits}
+        for lab in citation:
+            if " 별표" in lab:
+                continue
+            c = by_label.get(lab)
+            if not c:
+                continue
+            body = _AMEND_HIST.sub(" ", c.get("context", "").split("\n", 1)[-1])
+            law = c["law"]
+            for art, para in _OP_CROSS_REF.findall(body):
+                ref = f"{law} {art} 제{para}항" if para else f"{law} {art}"
+                if len(out) >= config.CITE_SIBLING_MAX_TOTAL:
+                    return out
+                if ref != lab and ref in by_label and ref in hit_labels and ref not in out and not _is_def_chunk(by_label[ref]):
+                    out.append(ref)
     return out
 
 
@@ -851,6 +1065,47 @@ def _with_annex_parent(citation):
     return out
 
 
+def _with_answer_mentions(citation, answer_text, hits):
+    """답변 본문에서 명시적으로 언급한 같은 조례 조항('제5조 제1항', '별표 2' 등)이 hits에 있는데
+    evidence에서 빠졌다면 MAX_CITATIONS(3개) 한도 안에서 보충합니다 (초과 인용 감점 0건 유지)."""
+    if not citation or not answer_text or len(citation) >= config.MAX_CITATIONS:
+        return citation
+    law = hits[0]["law"] if hits else ""
+    by_label = {h["label"]: h for h in hits}
+    if citation[0] in by_label:
+        law = by_label[citation[0]]["law"]
+    out = list(citation)
+    prev_end, prev_ext = -100, False
+    for m in _REF.finditer(answer_text):
+        before = answer_text[max(0, m.start() - 8):m.start()].rstrip()
+        gap = answer_text[prev_end:m.start()].strip() if m.start() - prev_end < 8 else None
+        ext = bool(_EXTERNAL.search(before)) or (prev_ext and gap in ("및", ",", "ㆍ", "또는", ""))
+        prev_end, prev_ext = m.end(), ext
+        if ext:
+            continue
+        art, para, art_only = m.groups()
+        cand = None
+        if art and para:
+            cand = f"{law} {art} 제{para}항"
+        elif art_only:
+            cand = f"{law} {art_only}"
+        if cand and cand in by_label and cand not in out:
+            out.append(cand)
+            if len(out) >= config.MAX_CITATIONS:
+                return out
+    for no in _ANNEX_REF.findall(answer_text):
+        cand = f"{law} 별표 {no}" if no else f"{law} 별표"
+        if cand in by_label and cand not in out:
+            out.append(cand)
+            if len(out) >= config.MAX_CITATIONS:
+                return out
+    return out
+
+
+_TTAREUNGYI_Q = re.compile(r"따릉이|공공자전거")
+_BIKE_PARK_Q = re.compile(r"주차")
+
+
 def answer(question, trace=None):
     """trace에 dict를 넘기면 단계별 진단 정보를 채웁니다 (어디서 '확인 불가'가 났는지 분석용)."""
     import upstage
@@ -860,8 +1115,8 @@ def answer(question, trace=None):
     if not question or not str(question).strip():
         trace["stop"] = "empty"
         return dict(UNKNOWN)
-    if config.USE_VERIFY and district_owned(question):
-        trace["stop"] = "district"              # 자치구·다른 시가 운영·제정하는 대상을 직접 물음
+    if config.USE_VERIFY and _is_other_local_gov(question):
+        trace["stop"] = "other_local_gov"
         return dict(UNKNOWN)
     queries = rewrite_queries(question)
     trace["queries"] = queries
@@ -873,17 +1128,23 @@ def answer(question, trace=None):
         return dict(UNKNOWN)
 
     hits = expand_links(expand_refs(expand_siblings(top)), question)
+    # 따릉이(공공자전거) 이용 질문에 자전거주차장 요금표(제9조·별표)가 섞여 혼동되는 것을 사전에 차단합니다.
+    if _TTAREUNGYI_Q.search(question) and not _BIKE_PARK_Q.search(question):
+        filtered = [h for h in hits if not ("자전거이용" in h["law"] and (h["label"].endswith("별표") or " 제9조" in h["label"]))]
+        if filtered:
+            hits = filtered
     trace["hits"] = [(h["label"], round(h["score"], 3), h["cos"] and round(h["cos"], 3)) for h in hits]
-    user_msg = f"[근거]\n{_context(hits)}\n\n[질문]\n{question}"
-    out = _ask_consistent(SYSTEM, user_msg, hits, trace)
+    user_msg = f"[근거]\n{_context(hits, question)}\n\n[질문]\n{question}"
+    effort = _auto_effort(question)
+    if effort:
+        trace["auto_effort"] = effort
+    out = _ask_consistent(SYSTEM, hits, question, trace, effort=effort)
     trace["llm"] = out
-    used = _pick(out, hits)
-    deleg = config.KEEP_DELEGATION_ANSWER and _delegation_answer(out, hits)
-    trace["delegation_kept"] = deleg
-    if (out.get("basis") == "없음" or _claims_no_rule(out)) and not deleg:
+    used = _pick(out, hits, question)
+    if out.get("basis") == "없음" or _claims_no_rule(out):
         trace["stop"] = "no_basis"              # 질문의 핵심이 조례에 없음 → 주변 조항으로 설명하지 않고 확인 불가
         return dict(UNKNOWN)
-    if (not out.get("found") and not deleg) or not used:
+    if not out.get("found") or not used:
         trace["stop"] = "found_false" if not out.get("found") else "no_evidence"
         return dict(UNKNOWN)
 
@@ -908,26 +1169,57 @@ def answer(question, trace=None):
             _assemble(o)
             trace["dropped_sentences"] = trace.get("dropped_sentences", 0) + len(bad)
 
+        _CONCL_OR_CALC = re.compile(r"[×x*=+/÷]|합계|총\s|최종|따라서|결론|납부|계산|감면|면제|중복|우선|높은\s*하나|제외|단서|다만")
+
+        def can_safe_drop(o, bad):
+            return (
+                bool(bad) and 0 not in bad and len(bad) < len(o["sentences"])
+                and not any(_CONCL_OR_CALC.search(o["sentences"][i]["text"]) for i in bad)
+            )
+
+        def try_safe_verdict(sv_hits):
+            if not (config.USE_SAFE_VERDICT and sv_hits and _time.time() - t_start < config.REPAIR_BUDGET_SEC):
+                return None, None
+            sv_ctx = f"[확정 인용 조항]\n{_context(sv_hits, question)}\n\n[질문]\n{question}"
+            sv = _ask(SAFE_VERDICT_SYSTEM, sv_ctx, sv_hits)
+            trace["safe_verdict"] = sv
+            if sv.get("basis") == "없음" or _claims_no_rule(sv) or not sv.get("found") or not sv["sentences"]:
+                return None, None
+            v3, r3, _ = check(sv)
+            trace["verdict3"], trace["reason3"] = v3, r3
+            return (sv, v3) if v3 != "notGrounded" else (None, v3)
+
         verdict, reason, bad = check(out)
         trace["verdict"], trace["reason"], trace["unsupported"] = verdict, reason, bad
-        if verdict == "notGrounded" and bad and 0 not in bad and len(bad) < len(out["sentences"]):
-            # 결론 문장(첫 문장)은 근거가 있음 → 근거 없는 문장만 코드가 지웁니다 (전체 재작성 없이)
+        if verdict == "notGrounded" and can_safe_drop(out, bad):
+            # 결론·계산 문장이 아닌 부수 문장만 근거가 없음 → 코드가 안전하게 지웁니다 (전체 재작성 없이)
             drop(out, bad)
             verdict = "grounded_after_drop"
         elif verdict == "notGrounded" and config.USE_REPAIR and _time.time() - t_start < config.REPAIR_BUDGET_SEC:
-            # 결론 문장 자체가 문제 → 한 번만 고쳐 쓰기 (검증 실패 건만 추론 ON)
-            out = _ask(REPAIR_SYSTEM, f"{user_msg}\n\n[직전 답변]\n{out['answer']}\n\n[검증 지적]\n{reason}",
-                       hits, effort=config.REPAIR_REASONING)
-            trace["repair"] = out
-            if out.get("basis") == "없음" or _claims_no_rule(out) or not out.get("found") or not out["sentences"]:
-                trace["stop"] = "repair_found_false"
-                return dict(UNKNOWN)
-            verdict, reason, bad = check(out)
-            trace["verdict2"], trace["reason2"], trace["unsupported2"] = verdict, reason, bad
-            if verdict == "notGrounded" and bad and 0 not in bad and len(bad) < len(out["sentences"]):
-                drop(out, bad)
-                verdict = "grounded_after_drop"
-        used = _pick(out, hits)
+            # 결론·계산 문장 자체가 문제 → 한 번만 고쳐 쓰기 (검증 실패 건만 추론 ON)
+            fix_hint = "\n\n[우선 유지할 인용 후보] " + ", ".join(h["label"] for h in used) if (config.RETRY_FIX_CITATIONS and used) else ""
+            rep_hits = used if (config.RETRY_FIX_CITATIONS and used and "근거를 잘못" not in reason and "다른 조항" not in reason and "시설" not in reason) else hits
+            rep = _ask(REPAIR_SYSTEM, f"{user_msg}\n\n[직전 답변]\n{out['answer']}\n\n[검증 지적]\n{reason}{fix_hint}",
+                       rep_hits, effort=config.REPAIR_REASONING)
+            trace["repair"] = rep
+            if rep.get("basis") == "없음" or _claims_no_rule(rep) or not rep.get("found") or not rep["sentences"]:
+                sv, v3 = (try_safe_verdict(used) if ("대상이" not in reason and "규정이 없" not in reason) else (None, None))
+                if not sv:
+                    trace["stop"] = "repair_found_false"
+                    return dict(UNKNOWN)
+                out, verdict = sv, v3
+            else:
+                out = rep
+                verdict, reason, bad = check(out)
+                trace["verdict2"], trace["reason2"], trace["unsupported2"] = verdict, reason, bad
+                if verdict == "notGrounded" and can_safe_drop(out, bad):
+                    drop(out, bad)
+                    verdict = "grounded_after_drop"
+                elif verdict == "notGrounded":
+                    sv, v3 = try_safe_verdict(_pick(out, hits, question) or used)
+                    if sv:
+                        out, verdict = sv, v3
+        used = _pick(out, hits, question)
         if verdict == "notGrounded" or not used:   # notSure는 통과 (함정은 basis/found 단계에서 거름)
             trace["stop"] = "not_grounded"
             return dict(UNKNOWN)
@@ -938,7 +1230,7 @@ def answer(question, trace=None):
     if config.CITE_ANNEX_PARENT:
         citation = _with_annex_parent(citation)
     if config.CITE_SIBLING_REFS:
-        citation = _with_sibling_refs(citation)
+        citation = _with_sibling_refs(citation, hits)
     first = used[0]
     return {"answer": _finalize(out, question), "citation": citation,
             "source_url": first["source_url"], "effective_date": first["effective_date"]}
