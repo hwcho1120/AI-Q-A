@@ -120,6 +120,7 @@ REWRITE_SYSTEM = """너는 서울특별시 조례 검색어 생성기다.
 - 금지 행위 질문이면 그 위반에 대한 '과태료 부과' 검색어도 만든다.
 - 용어의 뜻·대상·범위를 묻는 질문이면 '정의' 검색어도 만든다.
 - 질문에 두 가지 이상의 쟁점·시설·조건(예: '또한 ~는?', 'A와 B를 함께 고려할 때', '전용주차구획 + 할인', '입장료 + 이용료')이 섞여 있으면, 각 쟁점·조항별로 서로 다른 검색어를 분리해 만든다.
+- '따릉이(공공자전거)' 대여·이용요금 질문은 '공공자전거 이용요금 시장 위임'으로 검색어를 만들고, '자전거주차장 요금표' 검색어는 만들지 않는다.
 - 답을 쓰지 말고 검색어만 만든다. 각 검색어는 20자 안팎.
 pseudo_article: 이 질문에 답이 되는 조례 조문이 있다면 어떻게 쓰여 있을지, 조례 문체로 한두 문장을 지어 쓴다.
   (예: "소유자등은 ~할 때에는 다음 각 호의 사항을 준수하여야 한다", "시장은 ~에 해당하는 경우 ~를 감면할 수 있다")
@@ -194,7 +195,7 @@ def _score(queries, chunks, vecs, docs, df, avg):
 
 # 조례 이름의 핵심어 → 질문에서 그 조례 대상을 직접 가리키는 표현
 _LAW_KEYWORDS = {
-    "도시공원": r"공원|서울대공원|야영장|잔디광장|입장료",
+    "도시공원": r"공원|서울대공원|야영장|잔디광장|입장료|도시공원위원회|행정\(?2\)?부시장",
     "자전거": r"자전거|활성화계획|따릉이",
     "청년": r"청년",
     "금연": r"금연|흡연|담배",
@@ -457,7 +458,8 @@ SYSTEM = """너는 서울특별시 조례 질의응답 도우미다.
 - 근거 끝에 '(질문과 관련된 호: …)'가 표시돼 있으면 그 호부터 우선 확인하되, 최종 판단은 근거 본문 전체를 보고 내린다.
 - 근거 조항에 있는 비슷한·상위 제도(예: 다자녀 주차요금 감면, 일반 사진·영상 촬영 대관 및 이행보증금)를 질문이 묻는 조례에 없는 특정 대상·제도(예: 출산 축하 포인트 적립, 드론 촬영 허가 보증금)로 억지 연결하지 않는다. 질문의 핵심 대상·제도가 조례에 없으면 basis는 "없음", found는 false로 한다.
 - 질문이 둘 이상을 물으면("~와 ~를 각각", "또한 ~는?") 물음마다 답하는 문장을 빠짐없이 쓰고, 각 문장의 evidence에 그 물음을 직접 정한 조항을 맨 앞에 넣는다(문장 수 제한보다 우선).
-- 질문이 특정 항목들(예: A·B·C)의 기준·동일 여부를 물으면 질문한 항목들만 정확히 비교해 답하고, 조문에 같이 적힌 묻지 않은 다른 항목(D)이나 다른 위원회·다른 제도·다른 시설 규정을 끌어와 결론을 뒤집거나 불필요하게 덧붙이지 않는다.
+- 질문이 특정 항목들(예: A·B·C)의 기준·동일 여부를 물으면 질문한 항목들만 정확히 비교해 '동일한 기준(예: 모두 1년 이내)이 적용됩니다'처럼 직접 결론 내리고, 조문에 같이 적힌 묻지 않은 다른 항목(D)이나 다른 위원회·다른 제도·다른 시설 규정을 끌어와 '동일하지 않다'고 결론을 뒤집거나 불필요하게 덧붙이지 않는다.
+- '공공자전거(따릉이)' 대여·이용요금(제12조의2·제12조의3)과 '자전거주차장' 주차요금(별표, 제9조: 1시간 200원, 1일 1,000원, 월 15,000원)은 서로 다른 제도이므로, 따릉이 이용권·정기권 요금 질문에 자전거주차장 별표·제9조를 절대 적용·인용하지 않는다(구체 요금은 조례에 없고 제12조의2 제9항에 따라 시장이 따로 정함).
 - 첫 문장은 "네"나 "아니요"로 시작하지 말고 결론(값·결과·가능 여부)을 바로 쓴다. (앞머리 "네,/아니요,"는 시스템이 붙인다)
 - 이어서 결론을 뒷받침하는 조건·숫자(금액·비율·나이)와 '다만' 같은 단서·예외를 쓴다. 질문과 관계없는 절차·위임·이의제기 설명은 쓰지 않는다.
 - 일반 시민이 이해할 수 있는 쉬운 말로 2~4문장. 숫자는 근거에 적힌 값 그대로 쓴다.
@@ -494,7 +496,7 @@ SYSTEM = """너는 서울특별시 조례 질의응답 도우미다.
     - B가 조항에 직접 나와 있지 않은 별개 대상·수단·행위(예: 조문에 '사진·영상'만 있는데 '드론'을 묻는 경우)일 때, B에 대한 값·절차·의무(얼마, 몇, 해야 하나요)를 물으면 "없음".
       ("조항은 A만 정하므로 B는 해당하지 않습니다" 같은 추론으로 답하지 않는다)
     - 조문에 대상 X는 직접 나와 있고 질문이 X의 세부 항목(운영시간, 요금 등)만 묻는데 조문이 'X에 필요한 사항은 시장/규칙으로 정한다'고 위임한 경우는 "있음".
-    - B가 해당되는지(예/아니요)를 묻고, 조항이 기준(나이·면적·대수)이나 대상·심의 목록 또는 포괄 요건('시장이 회의에 부치는 사항' 등)을 명시해 B의 해당 여부나 조건을 판단할 수 있으면 반드시 "있음"이다. 조항이 B를 명시적으로 제외·한정·금지한 경우도 "있음".
+    - B가 해당되는지(예/아니요)를 묻고, 조항이 기준(나이·기간·개월·면적·대수·인원)이나 대상·심의 목록 또는 포괄 요건('시장이 회의에 부치는 사항' 등)을 명시해 B의 해당 여부나 요건 충족 여부를 판단할 수 있으면 반드시 "있음"(found=true)이다. 특히 기간·나이·수치 요건 미달(예: 6개월 이상 요건에 4개월·6개월 미만 입원)로 '요건에 해당하지 않아 할 수 없다'고 결론이 나는 경우에도 조문에 따라 판단한 것이므로 반드시 basis="있음", found=true로 답한다. 조항이 B를 명시적으로 제외·한정·금지한 경우도 "있음".
 """ + (ANSWER_FRAMES if config.USE_ANSWER_FRAMES else "") + """
 결과는 JSON으로 낸다."""
 
@@ -503,7 +505,14 @@ REPAIR_SYSTEM = SYSTEM + """
 [추가 지시] 직전 답변이 검증에서 '근거에 없는 내용이 있다'고 지적됐다. 검증은 직전 답변의 문장별 evidence로 고른 근거만 보고 이뤄졌다.
 - 근거를 잘못 골랐을 수 있으니, 전체 [근거]에서 답의 내용이 실제로 적힌 조항을 다시 확인해 고른다.
 - 지적된 결론 오류(단서·이중부정·경계값·계산·위임 과해석)는 원문과 대조해 정확한 결론으로 바로잡아 쓰고, 지적된 부수 문장은 삭제한다. 새로운 추측을 덧붙이지 않는다.
-- 그래도 질문에 답할 수 없으면 found를 false로 한다."""
+- 질문의 일부 쟁점만 조례에 없을 때는 근거가 있는 핵심 질문 부분만 정확히 답하고(없는 부분만 '규정이 없다'고 짧게 구분), 유효한 조항이 있는데도 섣불리 found=false로 뒤집지 않는다.
+- 그래도 질문 전체에 답할 근거가 없으면 found를 false로 한다."""
+
+SAFE_VERDICT_SYSTEM = SYSTEM + """
+
+[보수적 판결 지시] 직전 답변들이 검증을 통과하지 못했다. [확정 인용 조항]의 원문 문언만 그대로 옮기듯이 가장 보수적으로 1~2문장만 다시 작성하라.
+- [확정 인용 조항] 밖의 추론·확대해석·계산 과장을 일절 붙이지 말라.
+- 근거에서 직접 확인할 수 있는 사실(또는 시장·규칙 위임 사실)만 정확히 적고, 조항에 실제로 근거가 없으면 found를 false로 하라."""
 
 def _schema(hits):
     """응답 스키마. evidence는 이번에 보여 준 근거의 조항 이름 중에서만 고를 수 있습니다(enum).
@@ -603,10 +612,11 @@ def _context(hits, question=""):
     return "\n\n".join(blocks)
 
 
-def _ask(system, user, hits, effort=None):
+def _ask(system, user, hits, effort=None, temperature=0.0):
     import upstage
     out = json.loads(upstage.chat([{"role": "system", "content": system},
                                    {"role": "user", "content": user}], response_format=_schema(hits),
+                                  temperature=temperature,
                                   reasoning_effort=(effort or config.ANSWER_REASONING) or None))
     return _assemble(out)
 
@@ -636,18 +646,31 @@ def _auto_effort(question):
     return None
 
 
-def _ask_consistent(system, user, hits, trace, effort=None):
-    """같은 질문에 답을 N개 동시에 만들어 판단을 다수결로 정합니다 (자기 일관성).
-    동시에 호출하므로 응답 시간은 답 1개와 비슷합니다. 판단이 갈린 것 자체도 trace에 남깁니다."""
+def _ask_consistent(system, hits, question, trace, effort=None):
+    """같은 질문에 근거 순서(정순·역순·셔플)와 온도를 달리해 답을 N개 동시에 만들고 판단을 다수결로 정합니다."""
     n = config.CONSISTENCY_N
     if n < 2:
+        user = f"[근거]\n{_context(hits, question)}\n\n[질문]\n{question}"
         return _ask(system, user, hits, effort=effort)
+    import random
     import time as _t
     from collections import Counter
     from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+
+    def juror_job(k):
+        if k == 0:
+            j_hits, temp = hits, 0.0
+        elif k == 1:
+            j_hits, temp = list(reversed(hits)), 0.0
+        else:
+            j_hits = random.Random(42 + k).sample(hits, len(hits))
+            temp = 0.35
+        user = f"[근거]\n{_context(j_hits, question)}\n\n[질문]\n{question}"
+        return _ask(system, user, j_hits, effort=effort, temperature=temp)
+
     # 첫 답이 나오면 나머지는 CONSISTENCY_GRACE_SEC 초만 더 기다립니다 (가장 느린 답을 기다리지 않음 → 응답 시간 상한)
     ex = ThreadPoolExecutor(n)
-    futs = [ex.submit(_ask, system, user, hits, effort) for _ in range(n)]
+    futs = [ex.submit(juror_job, k) for k in range(n)]
     done, pending = wait(futs, return_when=FIRST_COMPLETED)
     deadline = _t.time() + config.CONSISTENCY_GRACE_SEC
     while pending and _t.time() < deadline:
@@ -705,8 +728,9 @@ _DELEGATED = re.compile(
 )
 
 
-# '기준에 해당하지 않습니다'처럼 규정을 적용한 결론(해당·적용·충족 여부)은 규정 부재가 아닙니다.
-_APPLY_NEG = re.compile(r"해당하지|해당되지|적용되지|적용하지|충족하지|포함되지|속하지|대상이 아니")
+# '기준에 해당하지 않습니다'·'규정에 맞지 않습니다'·'예외 사유가 존재하지 않습니다'는 규정을 적용한 결론이므로 규정 부재가 아닙니다.
+_APPLY_NEG = re.compile(r"해당하지|해당되지|적용되지|적용하지|충족하지|포함되지|속하지|대상이 아니|맞지|부합하지|적합하지|일치하지|어긋나|존재하지")
+_EXCEPT_NEG = re.compile(r"예외\s*(?:사유|조항|규정|기준)?[이가은는]?\s*[^.。]{0,20}?(?:없습니다|없어|존재하지\s*않)")
 
 
 # 첫 절에서 이미 적극적 규정('~해야/정하고 있/규정되어 있...')을 답한 뒤 부수 항목이 없음을 적는 경우는 규정 부재에서 제외('정할 수 있' 위임 제외)
@@ -721,6 +745,7 @@ def _claims_no_rule(out):
     hit = any(
         not _CANNOT.search(m.group(0))
         and not _APPLY_NEG.search(m.group(0))
+        and not _EXCEPT_NEG.search(first[max(0, m.start() - 20):m.end() + 5])
         and not ("," in first[:m.start()] and _AFFIRM_CLAUSE.search(first[:m.start()].rsplit(",", 1)[0]))
         for m in _NO_RULE.finditer(first)
     )
@@ -1066,6 +1091,10 @@ def _with_answer_mentions(citation, answer_text, hits):
     return out
 
 
+_TTAREUNGYI_Q = re.compile(r"따릉이|공공자전거")
+_BIKE_PARK_Q = re.compile(r"주차")
+
+
 def answer(question, trace=None):
     """trace에 dict를 넘기면 단계별 진단 정보를 채웁니다 (어디서 '확인 불가'가 났는지 분석용)."""
     import upstage
@@ -1088,12 +1117,17 @@ def answer(question, trace=None):
         return dict(UNKNOWN)
 
     hits = expand_links(expand_refs(expand_siblings(top)), question)
+    # 따릉이(공공자전거) 이용 질문에 자전거주차장 요금표(제9조·별표)가 섞여 혼동되는 것을 사전에 차단합니다.
+    if _TTAREUNGYI_Q.search(question) and not _BIKE_PARK_Q.search(question):
+        filtered = [h for h in hits if not ("자전거이용" in h["law"] and (h["label"].endswith("별표") or " 제9조" in h["label"]))]
+        if filtered:
+            hits = filtered
     trace["hits"] = [(h["label"], round(h["score"], 3), h["cos"] and round(h["cos"], 3)) for h in hits]
     user_msg = f"[근거]\n{_context(hits, question)}\n\n[질문]\n{question}"
     effort = _auto_effort(question)
     if effort:
         trace["auto_effort"] = effort
-    out = _ask_consistent(SYSTEM, user_msg, hits, trace, effort=effort)
+    out = _ask_consistent(SYSTEM, hits, question, trace, effort=effort)
     trace["llm"] = out
     used = _pick(out, hits, question)
     if out.get("basis") == "없음" or _claims_no_rule(out):
@@ -1124,13 +1158,25 @@ def answer(question, trace=None):
             _assemble(o)
             trace["dropped_sentences"] = trace.get("dropped_sentences", 0) + len(bad)
 
-        _CONCL_OR_CALC = re.compile(r"[×x*=+/÷]|합계|총\s|최종|따라서|결론|납부|계산")
+        _CONCL_OR_CALC = re.compile(r"[×x*=+/÷]|합계|총\s|최종|따라서|결론|납부|계산|감면|면제|중복|우선|높은\s*하나|제외|단서|다만")
 
         def can_safe_drop(o, bad):
             return (
                 bool(bad) and 0 not in bad and len(bad) < len(o["sentences"])
                 and not any(_CONCL_OR_CALC.search(o["sentences"][i]["text"]) for i in bad)
             )
+
+        def try_safe_verdict(sv_hits):
+            if not (config.USE_SAFE_VERDICT and sv_hits and _time.time() - t_start < config.REPAIR_BUDGET_SEC):
+                return None, None
+            sv_ctx = f"[확정 인용 조항]\n{_context(sv_hits, question)}\n\n[질문]\n{question}"
+            sv = _ask(SAFE_VERDICT_SYSTEM, sv_ctx, sv_hits)
+            trace["safe_verdict"] = sv
+            if sv.get("basis") == "없음" or _claims_no_rule(sv) or not sv.get("found") or not sv["sentences"]:
+                return None, None
+            v3, r3, _ = check(sv)
+            trace["verdict3"], trace["reason3"] = v3, r3
+            return (sv, v3) if v3 != "notGrounded" else (None, v3)
 
         verdict, reason, bad = check(out)
         trace["verdict"], trace["reason"], trace["unsupported"] = verdict, reason, bad
@@ -1140,17 +1186,28 @@ def answer(question, trace=None):
             verdict = "grounded_after_drop"
         elif verdict == "notGrounded" and config.USE_REPAIR and _time.time() - t_start < config.REPAIR_BUDGET_SEC:
             # 결론·계산 문장 자체가 문제 → 한 번만 고쳐 쓰기 (검증 실패 건만 추론 ON)
-            out = _ask(REPAIR_SYSTEM, f"{user_msg}\n\n[직전 답변]\n{out['answer']}\n\n[검증 지적]\n{reason}",
-                       hits, effort=config.REPAIR_REASONING)
-            trace["repair"] = out
-            if out.get("basis") == "없음" or _claims_no_rule(out) or not out.get("found") or not out["sentences"]:
-                trace["stop"] = "repair_found_false"
-                return dict(UNKNOWN)
-            verdict, reason, bad = check(out)
-            trace["verdict2"], trace["reason2"], trace["unsupported2"] = verdict, reason, bad
-            if verdict == "notGrounded" and bad and 0 not in bad and len(bad) < len(out["sentences"]):
-                drop(out, bad)
-                verdict = "grounded_after_drop"
+            fix_hint = "\n\n[우선 유지할 인용 후보] " + ", ".join(h["label"] for h in used) if (config.RETRY_FIX_CITATIONS and used) else ""
+            rep_hits = used if (config.RETRY_FIX_CITATIONS and used and "근거를 잘못" not in reason and "다른 조항" not in reason and "시설" not in reason) else hits
+            rep = _ask(REPAIR_SYSTEM, f"{user_msg}\n\n[직전 답변]\n{out['answer']}\n\n[검증 지적]\n{reason}{fix_hint}",
+                       rep_hits, effort=config.REPAIR_REASONING)
+            trace["repair"] = rep
+            if rep.get("basis") == "없음" or _claims_no_rule(rep) or not rep.get("found") or not rep["sentences"]:
+                sv, v3 = (try_safe_verdict(used) if ("대상이" not in reason and "규정이 없" not in reason) else (None, None))
+                if not sv:
+                    trace["stop"] = "repair_found_false"
+                    return dict(UNKNOWN)
+                out, verdict = sv, v3
+            else:
+                out = rep
+                verdict, reason, bad = check(out)
+                trace["verdict2"], trace["reason2"], trace["unsupported2"] = verdict, reason, bad
+                if verdict == "notGrounded" and can_safe_drop(out, bad):
+                    drop(out, bad)
+                    verdict = "grounded_after_drop"
+                elif verdict == "notGrounded":
+                    sv, v3 = try_safe_verdict(_pick(out, hits, question) or used)
+                    if sv:
+                        out, verdict = sv, v3
         used = _pick(out, hits, question)
         if verdict == "notGrounded" or not used:   # notSure는 통과 (함정은 basis/found 단계에서 거름)
             trace["stop"] = "not_grounded"
