@@ -189,6 +189,8 @@ li:last-child > .law-btn[aria-expanded="false"] { border-bottom: 0; }
 
 .tag-deleg { display: inline-block; margin: 18px 0 0; padding: 5px 12px; border-radius: 999px; background: var(--yellow-soft); color: var(--yellow-ink); font-size: 13.5px; font-weight: 700; }
 .tag-deleg + .headline { margin-top: 10px; }
+.next { margin-top: 26px; padding-top: 20px; border-top: 1px solid var(--line); }
+.next h3 { margin: 0 0 2px; font-size: 14px; font-weight: 600; color: var(--ink-3); }
 
 /* 확인 불가 / 오류 */
 .nf-icon { width: 44px; height: 44px; border-radius: 50%; background: var(--yellow-soft); color: var(--yellow-ink); display: grid; place-items: center; font-weight: 800; font-size: 22px; margin-top: 18px; }
@@ -551,7 +553,7 @@ footer { margin: 12px 0 48px; padding: 20px 4px 0; font-size: 12.5px; line-heigh
       card.appendChild(el("p", "headline", place + "의 시설 · 규정은 서울시 조례 밖이에요"));
       card.appendChild(el("p", "body-text", "이 서비스는 서울특별시 조례 6종을 기준으로 답해요. " + place + "가 운영하거나 정한 내용은 " + place + "청 안내에서 확인해 주세요."));
       var again = el("div", "btns"), ab = el("button", "btn soft", "서울시 기준으로 다시 물어보기"); ab.type = "button";
-      ab.addEventListener("click", function () { qEl.value = q.split(place).join("서울시"); autosize(); submit(); });
+      ab.addEventListener("click", function () { qEl.value = q.split(place).join("서울시"); autosize(); submit(true); });
       again.appendChild(ab); card.appendChild(again);
       return;
     }
@@ -561,9 +563,10 @@ footer { margin: 12px 0 48px; padding: 20px 4px 0; font-size: 12.5px; line-heigh
       card.appendChild(el("p", "body-text", "6개 조례에 없는 내용이거나, 질문이 너무 넓을 수 있어요. 이렇게 바꿔서 다시 물어보세요."));
       var tips = el("div", "tips"); tips.appendChild(el("h3", null, "더 잘 찾는 방법"));
       var ul = el("ul");
-      ["대상이나 상황을 넣어 보세요. 예) 65세, 경차, 장애인", "장소를 구체적으로 적어 보세요. 예) 공영주차장, 어린이공원", "알고 싶은 것을 분명하게 적어 보세요. 예) 금액, 기간, 가능 여부"]
+      ["내 상황을 넣어 보세요. 예) 자전거로 출퇴근, 본가에서 데려온 강아지", "장소를 구체적으로 적어 보세요. 예) 회사 근처 자전거 주차구역, 반려견 놀이터, 공원", "알고 싶은 것을 분명하게 적어 보세요. 예) 요금, 운영 시간, 등록해야 하는지"]
         .forEach(function (t) { ul.appendChild(el("li", null, t)); });
       tips.appendChild(ul); card.appendChild(tips);
+      nextChips(card, q, "");
       return;
     }
     var parts = splitAnswer(r.answer);
@@ -579,6 +582,34 @@ footer { margin: 12px 0 48px; padding: 20px 4px 0; font-size: 12.5px; line-heigh
     sec.appendChild(el("p", "foot-meta", "조례 기준 안내예요. 실제 신청 · 처분은 담당 부서(☎ 120 다산콜재단)에 확인해 주세요."));
     card.appendChild(sec);
     buttons(card, r.answer + "\n\n근거: " + r.citation.map(shortLabel).join(", ") + (r.source_url ? "\n원문: " + r.source_url : ""));
+    nextChips(card, q, r.citation[0] || "");
+  }
+
+  /* 이어서 물어보기: 방금 답한 조례에 맞춰 민지가 다음에 궁금할 질문을 추천한다.
+     앞쪽은 하루 흐름의 다음 장면(이사 → 출근길 → 주말), 뒤쪽은 같은 조례의 다른 질문.
+     모두 엔진으로 답이 확인된 질문만 쓴다 (11/21 main). */
+  var NEXT = [
+    { law: "동물보호", qs: ["회사 근처 자전거 주차구역이 있던데, 돈 내야하나?", "서울시 반려견 놀이터는 몇 시까지 해?", "맹견을 데리고 어린이공원에 들어가도 되나요?"] },
+    { law: "자전거", qs: ["강남구에 반려견 놀이터가 있나? 있으면 몇시까지 하지?", "따릉이로 출퇴근하면 정기권 할인 같은 게 있어?", "자전거 타다 다치면 서울시가 보상해 줘?"] },
+    { law: "청년", qs: ["청년이 주거 관련 보증보험료 지원을 받으려면 어떤 조건이 필요한가요?", "서울 사는 사회초년생이 받을 수 있는 지원이 조례에 있어?", "회사 근처 자전거 주차구역이 있던데, 돈 내야하나?"] },
+    { law: "도시공원", qs: ["강아지랑 공원 산책하는데 공원에서 담배 피우면 과태료가 얼마인가요?", "어린이공원에서 술을 마시면 어떻게 되나요?", "서울시 반려견 놀이터는 몇 시까지 해?"] },
+    { law: "금연", qs: ["어린이공원에서 술을 마시면 어떻게 되나요?", "지하철역 출입구 앞에서 담배를 피우면 과태료가 얼마인가요?", "서울시 반려견 놀이터는 몇 시까지 해?"] },
+    { law: "주차장", qs: ["경차를 서울시 공영주차장에 세우면 주차요금이 할인되나요?", "공영주차장 1급지 노상주차장 요금은 5분에 얼마인가요?", "회사 근처 자전거 주차구역이 있던데, 돈 내야하나?"] }
+  ];
+  var NEXT_DEFAULT = ["본가에서 데려온 강아지를 서울에서 키우려면 동물등록을 해야 하나요?", "회사 근처 자전거 주차구역이 있던데, 돈 내야하나?", "서울시 반려견 놀이터는 몇 시까지 해?"];
+
+  function nextChips(card, q, cite) {
+    var hit = NEXT.filter(function (n) { return cite.indexOf(n.law) >= 0; })[0];
+    var asked = (cur.turns || []).map(function (t) { return t.q; }).concat([q]);
+    var qs = (hit ? hit.qs : NEXT_DEFAULT).filter(function (x) { return asked.indexOf(x) < 0; }).slice(0, 3);
+    if (!qs.length) return;
+    var box = el("div", "next"); box.appendChild(el("h3", null, "이어서 물어보기"));
+    qs.forEach(function (x) {
+      var b = el("button", "ex", x); b.type = "button";
+      b.addEventListener("click", function () { qEl.value = x; autosize(); submit(true); });
+      box.appendChild(b);
+    });
+    card.appendChild(box);
   }
 
   /* ---------- 대화 ---------- */
@@ -595,11 +626,11 @@ footer { margin: 12px 0 48px; padding: 20px 4px 0; font-size: 12.5px; line-heigh
   }
   $("home").addEventListener("click", startNew);
 
-  function submit() {
+  function submit(standalone) {             // standalone=true: 추천 질문처럼 그 자체로 뜻이 통하는 질문은 앞 대화로 다시 쓰지 않는다
     var q = qEl.value.trim();
     if (!q || busy) return;
     busy = true; sendEl.disabled = true;
-    var session = cur, follow = session.turns.length > 0;     // 앞 대화가 있으면 이어진 질문
+    var session = cur, follow = session.turns.length > 0 && standalone !== true;     // 앞 대화가 있으면 이어진 질문
     qEl.value = ""; autosize();
     stage.dataset.state = "result"; qEl.placeholder = PH_FOLLOW;
 
