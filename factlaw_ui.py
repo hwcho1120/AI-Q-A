@@ -73,7 +73,8 @@ def _chat(req: Chat):
         _log("chat", standalone, dict(rag.UNKNOWN), trace, time.time() - t0, repr(e))
         raise
     _log("api", standalone, result, trace, time.time() - t0)
-    return {**result, "standalone": standalone}
+    # reason: 화면 안내용 처리 단계(예: other_local_gov = 자치구·타 시도 질문 규칙 차단). 채점용 /ask 응답에는 없습니다.
+    return {**result, "standalone": standalone, "reason": trace.get("stop", "")}
 
 
 def _log(*args):
@@ -97,4 +98,4 @@ async def chat(req: Chat):
         return await asyncio.wait_for(asyncio.to_thread(_chat, req), timeout=config.ANSWER_TIMEOUT_SEC)
     except Exception as e:  # noqa: BLE001
         log.warning("chat failed: %r", e)
-        return {**rag.UNKNOWN, "standalone": req.question}
+        return {**rag.UNKNOWN, "standalone": req.question, "reason": "error"}

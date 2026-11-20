@@ -32,6 +32,11 @@ _LOCAL_GOV_TARGET = re.compile(
     r"(?:의\s*|에서\s*(?:운영|시행|정하|관리|지원|부과)\S*\s*)?"
     r"(?:조례|규칙|공영|노상|노외|부설|거주자\s*우선|주차장|공원|도시공원|동물|유기|반려|자전거|청년\s*기본|금연|과태료|요금|입장료|사용료|이용료|수수료)"
 )
+# _LOCAL_GOV_TARGET의 '대상' 부분: 지명(자치구·타 시도 모두) 바로 뒤에 오면 그 지자체의 시설·규정을 묻는 것
+_TARGET_AFTER = re.compile(
+    r"\s*(?:의\s*|에서\s*(?:운영|시행|정하|관리|지원|부과)\S*\s*)?"
+    r"(?:조례|규칙|공영|노상|노외|부설|거주자\s*우선|주차장|공원|도시공원|동물|유기|반려|자전거|청년\s*기본|금연|과태료|요금|입장료|사용료|이용료|수수료)"
+)
 _SEOUL_EXPLICIT = re.compile(
     r"서울대공원|서울공공자전거|따릉이"
     r"|서울(?:특별시|시)?\s*(?:조례|주차장|동물보호|자전거|도시공원|청년|금연|공영|노상|노외|금연구역|반려견|가\s*관리|에서\s*운영|에서\s*시행|상\s)"
@@ -56,6 +61,9 @@ _RESIDENT_AFTER = re.compile(
     r"\s*(?:에\s*(?:사는|살고|살아|거주)"
     r"|에서\s*(?:살다|이사|왔|온|올라|자취|태어|다니|일하|근무|열린|열리는|했던)"
     r"|에\s*(?:갔|가서|다녀|있는\s*\S+에\s*갔)"
+    # 출퇴근·취직 방향("강남구로 출퇴근하는데", "강남구에 취직해서", "마포구로 이사 와서")도 질문자의 생활 배경
+    r"|(?:으)?로\s*(?:출퇴근|출근|통근|퇴근|취직|취업|이직|발령|전근|이사)"
+    r"|에\s*(?:취직|취업|출근|발령)"
     r"|\s*주민(?:인|이고|으로)|민(?:인|이고|으로))")
 # 1인칭 주어 + 지명 + '에/에서'("저는 성북구에서 사진 동아리를 운영하는데")면 지명은 질문자의 활동 배경임.
 # "저는 부산시 공원 이용료가…"처럼 지명 뒤에 바로 대상이 오면 해당하지 않습니다.
@@ -79,6 +87,9 @@ def _is_other_local_gov(question):
     if not _OTHER_LOCAL_GOV.search(question):
         return False
     if _LOCAL_GOV_TARGET.search(question):
+        return True
+    # 타 시·도 지명 바로 뒤에 대상이 붙으면 차단 ("부산시로 이사 가는데 부산시 공영주차장 요금은?")
+    if any(_TARGET_AFTER.match(question, m.end()) for m in _OTHER_LOCAL_GOV.finditer(question)):
         return True
     if any(_RESIDENT_AFTER.match(question, m.end())
            or (_FIRST_PERSON_BEFORE.search(question[:m.start()]) and question.startswith("에", m.end())

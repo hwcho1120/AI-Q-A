@@ -520,8 +520,21 @@ footer { margin: 12px 0 48px; padding: 20px 4px 0; font-size: 12.5px; line-heigh
     row.appendChild(cp); card.appendChild(row);
   }
 
-  function fillAnswer(card, r) {
+  /* 자치구·타 시도 이름. 엔진이 이 질문을 '다른 지자체 소관'으로 막았을 때 안내 문구에 씁니다. */
+  var REGION = /(?<![가-힣])(?:(?:강남|서초|송파|마포|성동|영등포|종로|용산|광진|동대문|중랑|성북|강북|도봉|노원|은평|서대문|양천|강서|구로|금천|동작|관악|강동|중)구|(?:부산|인천|대구|대전|광주|울산|세종|수원|성남|고양|용인|부천|안양|화성|안산|남양주|평택|김포|파주|시흥|광명|하남|의정부|창원|청주|전주|천안|포항|제주)(?:광역|특별자치)?시|경기도|강원(?:특별자치)?도|충청[남북]도|전라[남북]도|전북특별자치도|경상[남북]도|제주(?:특별자치)?도)/;
+
+  function fillAnswer(card, r, q) {
     var unknown = !r.citation || !r.citation.length || /^확인 불가/.test(r.answer || "");
+    var place = unknown && r.reason === "other_local_gov" && q ? (q.match(REGION) || [])[0] : null;
+    if (place) {                               // 막다른 길이 아니라 갈 곳을 알려 주는 안내
+      card.appendChild(el("div", "nf-icon", "📍"));
+      card.appendChild(el("p", "headline", place + "의 시설 · 규정은 서울시 조례 밖이에요"));
+      card.appendChild(el("p", "body-text", "이 서비스는 서울특별시 조례 6종을 기준으로 답해요. " + place + "가 운영하거나 정한 내용은 " + place + "청 안내에서 확인해 주세요."));
+      var again = el("div", "btns"), ab = el("button", "btn soft", "서울시 기준으로 다시 물어보기"); ab.type = "button";
+      ab.addEventListener("click", function () { qEl.value = q.split(place).join("서울시"); autosize(); submit(); });
+      again.appendChild(ab); card.appendChild(again);
+      return;
+    }
     if (unknown) {
       card.appendChild(el("div", "nf-icon", "?"));
       card.appendChild(el("p", "headline", "이 질문은 조례에서 근거를 찾지 못했어요"));
@@ -555,7 +568,7 @@ footer { margin: 12px 0 48px; padding: 20px 4px 0; font-size: 12.5px; line-heigh
   }
   function openSession(s) {
     cur = s; stage.dataset.state = "result"; qEl.placeholder = PH_FOLLOW; resultEl.textContent = "";
-    s.turns.forEach(function (t) { var c = cardShell(t.q); c.style.animation = "none"; fillAnswer(c, t.r); resultEl.appendChild(c); });
+    s.turns.forEach(function (t) { var c = cardShell(t.q); c.style.animation = "none"; fillAnswer(c, t.r, t.q); resultEl.appendChild(c); });
     var last = resultEl.lastChild; if (last) last.scrollIntoView({ block: "start" });
   }
   $("home").addEventListener("click", startNew);
@@ -579,13 +592,13 @@ footer { margin: 12px 0 48px; padding: 20px 4px 0; font-size: 12.5px; line-heigh
 
     var body = follow
       ? { question: q, history: session.turns.slice(-3).map(function (t) { return { q: t.q, a: (t.r && t.r.answer) || "", c: (t.r && t.r.citation) || [] }; }) }
-      : { question: q };
+      : { question: q, history: [] };          // 첫 질문은 다시 쓰지 않고 그대로 답합니다 (응답에 안내용 reason 포함)
     function swap(c) { if (card.parentNode === resultEl) resultEl.replaceChild(c, card); }
 
-    fetch(follow ? "/api/chat" : "/ask", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: ctl.signal })
+    fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: ctl.signal })
       .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
       .then(function (r) {
-        var c = cardShell(q); fillAnswer(c, r); swap(c);
+        var c = cardShell(q); fillAnswer(c, r, q); swap(c);
         session.turns.push({ q: q, r: r });
         if (session.turns.length > MAX_TURNS) session.turns.shift();
         if (!session.title) session.title = q;
