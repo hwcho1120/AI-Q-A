@@ -57,6 +57,11 @@ _RESIDENT_AFTER = re.compile(
     r"|에서\s*(?:살다|이사|왔|온|올라|자취|태어|다니|일하|근무|열린|열리는|했던)"
     r"|에\s*(?:갔|가서|다녀|있는\s*\S+에\s*갔)"
     r"|\s*주민(?:인|이고|으로)|민(?:인|이고|으로))")
+# 1인칭 주어 + 지명 + '에/에서'("저는 성북구에서 사진 동아리를 운영하는데")면 지명은 질문자의 활동 배경임.
+# "저는 부산시 공원 이용료가…"처럼 지명 뒤에 바로 대상이 오면 해당하지 않습니다.
+_FIRST_PERSON_BEFORE = re.compile(r"(?:^|[\s,.])(?:저는|제가|저희는|저희가|전|나는|내가|난)\s*$")
+# 다만 "저는 부산시에서 운영하는 공원…", "저는 강남구에 있는 주차장…"처럼 지명이 대상의 주인이면 배경이 아님
+_OWNED_AFTER = re.compile(r"에서?\s*(?:는\s*)?(?:운영|관리|시행|정하|정한|정해|지원|부과|받는|내는|있는|설치|만든|하는\s*(?:\S+\s*){0,3}?\S*(?:공원|주차장|센터|사업|지원|요금|사용료|이용료))")
 # "형사처벌 받나요?"처럼 조례가 다루는 행위의 제재를 예/아니요로 묻는 질문은 막지 않음
 # (조례의 과태료 조항 인용 + "아니요, 형사처벌이 아니라 과태료" 안내가 맞음. 상위법명·형량·범칙금·벌점을 묻으면 차단)
 _CRIMINAL_YESNO = re.compile(r"형사\s*처벌\s*(?:을|도|까지)?\s*(?:받|대상|되|당하)\S*\s*\??\s*$")
@@ -75,7 +80,10 @@ def _is_other_local_gov(question):
         return False
     if _LOCAL_GOV_TARGET.search(question):
         return True
-    if any(_RESIDENT_AFTER.match(question, m.end()) for m in _OTHER_LOCAL_GOV.finditer(question)):
+    if any(_RESIDENT_AFTER.match(question, m.end())
+           or (_FIRST_PERSON_BEFORE.search(question[:m.start()]) and question.startswith("에", m.end())
+               and not _OWNED_AFTER.match(question, m.end()))
+           for m in _OTHER_LOCAL_GOV.finditer(question)):
         return False
     return not _SEOUL_EXPLICIT.search(question)
 
