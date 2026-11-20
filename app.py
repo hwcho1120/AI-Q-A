@@ -35,7 +35,7 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(title="서울시 조례 Q&A", lifespan=lifespan)
 
-try:  # 시연 화면(/, /api/*). 실패해도 채점용 /ask 는 그대로 동작해야 합니다.
+try:  # 관리자 화면(/admin)과 근거 원문 API(/api/source). 실패해도 채점용 /ask 는 그대로 동작해야 합니다.
     import ui_api
     app.include_router(ui_api.router)
 except Exception as _e:  # noqa: BLE001

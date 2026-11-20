@@ -1,5 +1,6 @@
 """Fact Law 시민용 화면과 이어진 질문 API. 채점용 POST /ask 와는 분리되어 있습니다.
 
+GET  /            /factlaw 로 이동
 GET  /factlaw     시민용 질문 화면 (static/factlaw.html)
 POST /api/chat    이어진 질문: 앞 대화를 참고해 질문을 독립된 문장으로 다시 쓴 뒤 rag.answer로 답한다
 
@@ -11,7 +12,7 @@ import time
 from pathlib import Path
 
 from fastapi import APIRouter
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel
 
 import config
@@ -83,6 +84,11 @@ def _log(*args):
         review.log_qa(*args)
     except Exception:  # noqa: BLE001
         pass
+
+
+@router.get("/")
+def root():
+    return RedirectResponse("/factlaw")
 
 
 @router.get("/factlaw")
