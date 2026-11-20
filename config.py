@@ -64,7 +64,7 @@ MIN_SCORE = 0.25
 
 # 대회 제한은 문항당 90초. 여유를 두고 이 시간을 넘기면 '확인 불가'로 돌려줍니다.
 ANSWER_TIMEOUT_SEC = 75
-MAX_CONCURRENCY = int(os.environ.get("MAX_CONCURRENCY", "20"))    # Upstage API 동시 요청 상한 (동시 8스레드 무병목 + 과부하 방어)
+MAX_CONCURRENCY = int(os.environ.get("MAX_CONCURRENCY", "24"))    # Upstage API 동시 요청 상한 (N=3 병렬 + 다중 워커 무병목)
 EMBED_CACHE_MAX = int(os.environ.get("EMBED_CACHE_MAX", "2000"))  # 질문 임베딩 디스크 캐시 최대 항목 수
 RRF_K = 10                    # 순위 합산(RRF) 상수: 작을수록 각 검색어의 상위권을 더 우대
 RRF_DEPTH = 60                # 검색어마다 몇 위까지 합산에 넣을지
@@ -78,7 +78,7 @@ ANSWER_REASONING = os.environ.get("ANSWER_REASONING", "")
 AUTO_REASONING = os.environ.get("AUTO_REASONING", "")         # 500문항 A/B(11/20): low 시 max 76.8s·Recall 0.9772 vs "" 시 max 55.0s·Recall 0.9857 → 기본값 ""
 REPAIR_REASONING = os.environ.get("REPAIR_REASONING", "low")  # 검증 실패 건(소수)만 추론 ON으로 정밀 교정 (28s 폴백 보호)
 CONSISTENCY_N = int(os.environ.get("CONSISTENCY_N", "1"))   # 답을 동시에 몇 개 만들어 다수결할지 (1이면 끔)
-CONSISTENCY_GRACE_SEC = 5.0   # 첫 답 이후 나머지 답을 기다리는 최대 시간 (응답 시간 상한)
+CONSISTENCY_GRACE_SEC = 8.0   # 첫 답 이후 나머지 답을 기다리는 최대 시간 (3배심원 수렴 확보)
 REPAIR_BUDGET_SEC = 55.0      # 질문 받은 뒤 이 시간이 지났으면 고쳐 쓰기를 건너뜀 (75초 서버 타임아웃 대비)
 RETRY_FIX_CITATIONS = os.environ.get("RETRY_FIX_CITATIONS", "0") == "1"  # 단일 생성 시 Repair가 누락 조항도 보충할 수 있도록 기본 끔
 USE_SAFE_VERDICT = os.environ.get("USE_SAFE_VERDICT", "1") == "1"        # 재작성도 검증 실패 시 원문 직역 보수적 판결 1회 시도

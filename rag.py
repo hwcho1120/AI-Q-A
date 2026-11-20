@@ -704,16 +704,32 @@ def _ask_consistent(system, hits, question, trace, effort=None):
     if not outs:
         raise RuntimeError("답변 생성 전부 실패")
     trace["consistency_n"] = len(outs)
-    decisions = [_decision(o) for o in outs]
-    # 네/아니요가 서로 반대인 경우도 판단 불일치로 봅니다
-    pol = {o.get("conclusion") for o in outs if o.get("conclusion") in ("네", "아니요")}
-    trace["consistency"] = [list(d) + [o.get("conclusion")] for d, o in zip(decisions, outs)]
-    top, cnt = Counter(decisions).most_common(1)[0]
-    trace["consistency_agree"] = cnt == len(outs) and len(pol) <= 1
-    winners = [o for o, d in zip(outs, decisions) if d == top]
-    # 결론(네/아니요/해당없음)도 다수결로 고릅니다
-    major = Counter(o.get("conclusion") for o in winners).most_common(1)[0][0]
-    return next(o for o in winners if o.get("conclusion") == major)
+    is_ok = [o.get("basis") != "없음" and bool(o.get("found")) and not _claims_no_rule(o) and bool(o.get("evidence"))
+             for o in outs]
+    need = len(outs) // 2 + 1
+    pol = {o.get("conclusion") for o, ok in zip(outs, is_ok) if ok and o.get("conclusion") in ("네", "아니요")}
+    trace["consistency"] = [[("있음" if ok else "없음"), o.get("evidence"), o.get("conclusion")]
+                            for o, ok in zip(outs, is_ok)]
+    valid_outs = [o for o, ok in zip(outs, is_ok) if ok]
+    if len(valid_outs) < need:
+        trace["consistency_agree"] = len(valid_outs) == 0
+        return next((o for o, ok in zip(outs, is_ok) if not ok), outs[0])
+    # 조항별 다수결 합의 집합을 구하고(Jaccard 최고 배심원 선택), 결론 방향도 다수결로 정합니다.
+    lab_cnt = Counter(lab for o in valid_outs for lab in dict.fromkeys(o.get("evidence", [])))
+    v_need = len(valid_outs) // 2 + 1
+    consensus = {lab for lab, c in lab_cnt.items() if c >= v_need} or {lab_cnt.most_common(1)[0][0]}
+    major = Counter(o.get("conclusion") for o in valid_outs).most_common(1)[0][0]
+
+    def score_juror(o):
+        ev = set(o.get("evidence", []))
+        jacc = len(ev & consensus) / max(len(ev | consensus), 1)
+        return (int(o.get("conclusion") == major), jacc, -abs(len(ev) - len(consensus)))
+
+    best = max(valid_outs, key=score_juror)
+    trace["consistency_consensus"] = sorted(consensus)
+    trace["consistency_agree"] = (len(valid_outs) == len(outs) and len(pol) <= 1
+                                  and all(set(o.get("evidence", [])) == consensus for o in valid_outs))
+    return best
 
 
 def _assemble(out):
