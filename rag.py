@@ -976,6 +976,13 @@ _NEG_FIRST_END = re.compile(
 )
 
 
+# "흡연해서는 안 됩니다"처럼 금지 규정을 설명하는 첫 문장은 '해도 되나요?'(허락) 질문일 때만 '아니요'의 근거.
+# "과태료가 있나요?"에 모델이 '네'를 골랐는데 첫 문장이 금지 설명이라 '아니요'로 뒤집혀
+# "아니요, … 10만원의 과태료가 부과됩니다"처럼 모순되던 문제를 막습니다.
+_PROHIBIT_END = re.compile(r"(?:서는|면)\s?안\s?(?:됩니다|돼요|된다)[^가-힣]*$")
+_PERMIT_Q = re.compile(r"(?:도|해도|돼도)\s?(?:되|돼|괜찮|가능)|할\s?수\s?있|가능한가|가능해|허용")
+
+
 def _is_wh_only(question):
     clauses = [c for c in re.split(r"[?？]", question) if c.strip()]
     asks = clauses if question.strip().endswith(("?", "？")) else clauses[:-1] or clauses
@@ -995,7 +1002,7 @@ def _finalize(out, question=""):
     if _no_yesno(question):
         return text
     first = re.split(r"(?<=[.다요])\s+", text, maxsplit=1)[0]
-    if c == "네" and _NEG_FIRST_END.search(first):
+    if c == "네" and _NEG_FIRST_END.search(first) and not (_PROHIBIT_END.search(first) and not _PERMIT_Q.search(question)):
         c = "아니요"
     return f"{c}, {text}" if c in ("네", "아니요") else text
 
