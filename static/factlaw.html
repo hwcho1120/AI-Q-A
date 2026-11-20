@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#17171c">
 <script>try{document.documentElement.setAttribute("data-theme",localStorage.getItem("fl-theme")==="light"?"light":"dark");}catch(e){document.documentElement.setAttribute("data-theme","dark");}</script>
-<title>Fact Law - 궁금한 조례, 바로 물어보세요</title>
+<title>Fact Law - 서울, 이건 어떻게 돼요?</title>
 <meta name="description" content="주차장·동물보호·자전거·도시공원·청년·금연 조례 6종에서 근거를 찾아 쉬운 말로 알려드려요.">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
 <style>
@@ -264,6 +264,10 @@ footer { margin: 12px 0 48px; padding: 20px 4px 0; font-size: 12.5px; line-heigh
   .headline { font-size: 23px; }
   textarea { font-size: 17px; }
 }
+/* 360px 안팎 휴대폰: 부제가 한 줄에 들어가도록 */
+@media (max-width: 400px) {
+  .lede { font-size: 14.5px; }
+}
 </style>
 </head>
 <body>
@@ -286,8 +290,8 @@ footer { margin: 12px 0 48px; padding: 20px 4px 0; font-size: 12.5px; line-heigh
 
   <main class="stage" id="stage" data-state="home">
     <section class="hero">
-      <h1>서울 생활,<br>규칙부터 가볍게</h1>
-      <p class="lede">출퇴근 · 반려견 · 청년 지원 · 공원 이용까지<br>서울시 조례 6종에서 근거를 찾아 쉬운 말로 알려드려요.</p>
+      <h1>서울, 이건 어떻게 돼요?</h1>
+      <p class="lede">서울 생활 첫걸음, 규칙과 혜택을 쉽게 알려드려요</p>
     </section>
 
     <form id="ask" autocomplete="off">
