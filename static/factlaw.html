@@ -17,9 +17,10 @@
   --ink-3: #8b95a1;
   --line: #e5e8eb;
   --fill: #f2f4f6;
-  --blue: #3182f6;
-  --blue-press: #1b64da;
-  --blue-soft: #e8f3ff;
+  /* 대표색: 발표 자료와 같은 보라 계열 (이름은 기존 변수 그대로) */
+  --blue: #6a50e8;
+  --blue-press: #5b45d6;
+  --blue-soft: #efebff;
   --red: #f04452;
   --yellow-soft: #fff7e0;
   --yellow-ink: #8a5a00;
@@ -35,9 +36,9 @@
   --ink-3: #8b95a1;
   --line: #2e2e36;
   --fill: #2a2a32;
-  --blue: #4593fc;
-  --blue-press: #6aa6ff;
-  --blue-soft: #1e2b3f;
+  --blue: #a594fa;
+  --blue-press: #b8a9ff;
+  --blue-soft: #2a2445;
   --red: #ff6b76;
   --yellow-soft: #2d2916;
   --yellow-ink: #f0c869;
@@ -180,6 +181,9 @@ li:last-child > .law-btn[aria-expanded="false"] { border-bottom: 0; }
 .btn.soft:hover { filter: brightness(.97); }
 .btn.line { background: var(--fill); color: var(--ink-2); }
 
+.tag-deleg { display: inline-block; margin: 18px 0 0; padding: 5px 12px; border-radius: 999px; background: var(--yellow-soft); color: var(--yellow-ink); font-size: 13.5px; font-weight: 700; }
+.tag-deleg + .headline { margin-top: 10px; }
+
 /* 확인 불가 / 오류 */
 .nf-icon { width: 44px; height: 44px; border-radius: 50%; background: var(--yellow-soft); color: var(--yellow-ink); display: grid; place-items: center; font-weight: 800; font-size: 22px; margin-top: 18px; }
 .tips { margin: 18px 0 0; padding: 18px 20px; background: var(--fill); border-radius: var(--r-md); }
@@ -274,14 +278,14 @@ footer { margin: 12px 0 48px; padding: 20px 4px 0; font-size: 12.5px; line-heigh
 
   <main class="stage" id="stage" data-state="home">
     <section class="hero">
-      <h1>궁금한 조례,<br>바로 물어보세요</h1>
-      <p class="lede">주차장 · 동물보호 · 자전거 · 도시공원 · 청년 · 금연<br>서울시 조례 6종에서 근거를 찾아 쉬운 말로 알려드려요.</p>
+      <h1>서울 생활,<br>규칙부터 가볍게</h1>
+      <p class="lede">출퇴근 · 반려견 · 청년 지원 · 공원 이용까지<br>서울시 조례 6종에서 근거를 찾아 쉬운 말로 알려드려요.</p>
     </section>
 
     <form id="ask" autocomplete="off">
       <label for="q" class="sr">궁금한 내용</label>
       <div class="ask-box">
-        <textarea id="q" rows="2" maxlength="300" placeholder="예) 65세인데 서울대공원 동물원 입장료 면제되나요?" enterkeyhint="send" aria-describedby="kbd"></textarea>
+        <textarea id="q" rows="2" maxlength="300" placeholder="예) 회사 근처 자전거 주차구역, 돈 내야 하나요?" enterkeyhint="send" aria-describedby="kbd"></textarea>
         <span class="kbd-hint" id="kbd">Enter 전송 · Shift+Enter 줄바꿈</span>
         <button class="go" id="send" type="submit" aria-label="질문하기">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
@@ -290,7 +294,7 @@ footer { margin: 12px 0 48px; padding: 20px 4px 0; font-size: 12.5px; line-heigh
     </form>
 
     <section class="block topics" aria-labelledby="topics-h">
-      <h2 id="topics-h">주제를 고르면 예시 질문이 나와요</h2>
+      <h2 id="topics-h">나는 지금… 상황을 고르면 자주 묻는 질문이 나와요</h2>
       <div class="chips" id="chips"></div>
       <ul class="rows" id="examples"></ul>
     </section>
@@ -326,34 +330,33 @@ footer { margin: 12px 0 48px; padding: 20px 4px 0; font-size: 12.5px; line-heigh
 (function () {
   "use strict";
 
+  /* 상황 카드: 서울에서 새 생활을 시작한 사회초년생의 하루 순서. 엔진은 6종 전체에 답하므로 마지막 카드에 나머지 조례를 둔다.
+     예시 질문은 모두 엔진으로 답이 확인된 문장만 넣는다 (11/21 main 기준). */
   var TOPICS = [
-    { name: "주차장", hint: "요금 · 감면 · 주차구획", qs: [
-      "공영주차장 1급지 노상주차장 요금은 5분에 얼마인가요?",
-      "경차를 서울시 공영주차장에 세우면 주차요금이 할인되나요?",
-      "장애인 할인과 다둥이 행복카드 할인을 공영주차장에서 둘 다 받을 수 있나요?" ] },
-    { name: "동물보호", hint: "등록 · 맹견 · 길고양이", qs: [
-      "유기견을 입양해서 동물등록을 하려는데 등록수수료를 내야 하나요?",
-      "맹견을 데리고 어린이공원에 들어가도 되나요?",
-      "중성화한 길고양이는 어디에 풀어주나요?" ] },
-    { name: "자전거", hint: "주차장 · 공공자전거 요금", qs: [
-      "서울시 자전거주차장은 돈을 내야 하나요? 낸다면 얼마인가요?",
-      "15살 청소년인데 공공자전거 이용요금을 감면받을 수 있나요?",
-      "자전거의 날은 언제인가요?" ] },
-    { name: "도시공원", hint: "입장료 · 시설 이용 · 금주", qs: [
-      "저는 65세인데 서울대공원 동물원 입장료를 면제받을 수 있나요?",
+    { name: "🏠 이사 · 반려견", qs: [
+      "본가에서 데려온 강아지를 서울에서 키우려면 동물등록을 해야 하나요?",
+      "서울시 반려견 놀이터는 몇 시까지 해?",
+      "강남구에 반려견 놀이터가 있나? 있으면 몇시까지 하지?",
+      "맹견을 데리고 어린이공원에 들어가도 되나요?" ] },
+    { name: "🚲 자전거 출퇴근", qs: [
+      "회사 근처 자전거 주차구역이 있던데, 돈 내야하나?",
+      "따릉이로 출퇴근하면 정기권 할인 같은 게 있어?",
+      "자전거 타다 다치면 서울시가 보상해 줘?" ] },
+    { name: "💼 사회초년생 · 청년", qs: [
+      "서울 사는 사회초년생이 받을 수 있는 지원이 조례에 있어?",
+      "청년이 주거 관련 보증보험료 지원을 받으려면 어떤 조건이 필요한가요?",
+      "서울시 청년 기본 조례에서 말하는 청년은 몇 살부터 몇 살까지인가요?" ] },
+    { name: "🌳 주말 · 공원", qs: [
+      "강아지랑 공원 산책하는데 공원에서 담배 피우면 과태료가 얼마인가요?",
       "어린이공원에서 술을 마시면 어떻게 되나요?",
       "도시공원 시설을 예약했는데 사용일 3일 전에 취소하면 이용료를 얼마나 돌려받나요?" ] },
-    { name: "청년", hint: "나이 기준 · 주거 · 지원", qs: [
-      "서울시 청년 기본 조례에서 말하는 청년은 몇 살부터 몇 살까지인가요?",
-      "의무복무를 마친 제대군인이면 청년정책 참여 나이 제한이 늘어나나요?",
-      "청년이 주거 관련 보증보험료 지원을 받으려면 어떤 조건이 필요한가요?" ] },
-    { name: "금연", hint: "금연구역 · 과태료", qs: [
-      "지하철역 출입구 앞에서 담배를 피우면 과태료가 얼마인가요?",
-      "서울시 도시공원에서 담배를 피우면 어떻게 되나요?",
-      "서울시 금연지도원의 임기는 얼마인가요?" ] }
+    { name: "📋 그 밖의 조례", qs: [
+      "경차를 서울시 공영주차장에 세우면 주차요금이 할인되나요?",
+      "공영주차장 1급지 노상주차장 요금은 5분에 얼마인가요?",
+      "지하철역 출입구 앞에서 담배를 피우면 과태료가 얼마인가요?" ] }
   ];
   var MAX_SESSIONS = 10, MAX_TURNS = 12, TIMEOUT_MS = 90000;
-  var PH_HOME = "예) 65세인데 서울대공원 동물원 입장료 면제되나요?", PH_FOLLOW = "이어서 궁금한 점을 물어보세요";
+  var PH_HOME = "예) 회사 근처 자전거 주차구역, 돈 내야 하나요?", PH_FOLLOW = "이어서 궁금한 점을 물어보세요";
 
   var $ = function (id) { return document.getElementById(id); };
   var qEl = $("q"), sendEl = $("send"), resultEl = $("result");
@@ -523,6 +526,9 @@ footer { margin: 12px 0 48px; padding: 20px 4px 0; font-size: 12.5px; line-heigh
   /* 자치구·타 시도 이름. 엔진이 이 질문을 '다른 지자체 소관'으로 막았을 때 안내 문구에 씁니다. */
   var REGION = /(?<![가-힣])(?:(?:강남|서초|송파|마포|성동|영등포|종로|용산|광진|동대문|중랑|성북|강북|도봉|노원|은평|서대문|양천|강서|구로|금천|동작|관악|강동|중)구|(?:부산|인천|대구|대전|광주|울산|세종|수원|성남|고양|용인|부천|안양|화성|안산|남양주|평택|김포|파주|시흥|광명|하남|의정부|창원|청주|전주|천안|포항|제주)(?:광역|특별자치)?시|경기도|강원(?:특별자치)?도|충청[남북]도|전라[남북]도|전북특별자치도|경상[남북]도|제주(?:특별자치)?도)/;
 
+  /* 조례가 세부를 시장 등에 맡긴 답("시장이 따로 정하므로, 조례에는 … 정해져 있지 않습니다") */
+  var DELEGATED = /시장이 따로 정|조례에는[^.]{0,40}정해져 있지 않/;
+
   function fillAnswer(card, r, q) {
     var unknown = !r.citation || !r.citation.length || /^확인 불가/.test(r.answer || "");
     var place = unknown && r.reason === "other_local_gov" && q ? (q.match(REGION) || [])[0] : null;
@@ -547,6 +553,7 @@ footer { margin: 12px 0 48px; padding: 20px 4px 0; font-size: 12.5px; line-heigh
       return;
     }
     var parts = splitAnswer(r.answer);
+    if (DELEGATED.test(r.answer)) card.appendChild(el("p", "tag-deleg", "조례엔 세부 내용이 없어요 · 정하는 곳을 안내해요"));
     var h = el("p", "headline"); fillHeadline(h, parts.head); card.appendChild(h);
     if (parts.rest) card.appendChild(el("p", "body-text", parts.rest));
 
@@ -555,6 +562,7 @@ footer { margin: 12px 0 48px; padding: 20px 4px 0; font-size: 12.5px; line-heigh
     r.citation.forEach(function (c) { ul2.appendChild(lawItem(c)); });
     sec.appendChild(ul2);
     if (r.effective_date) sec.appendChild(el("p", "foot-meta", "조례 시행일 " + r.effective_date));
+    sec.appendChild(el("p", "foot-meta", "조례 기준 안내예요. 실제 신청 · 처분은 담당 부서(☎ 120 다산콜재단)에 확인해 주세요."));
     card.appendChild(sec);
     buttons(card, r.answer + "\n\n근거: " + r.citation.map(shortLabel).join(", ") + (r.source_url ? "\n원문: " + r.source_url : ""));
   }
