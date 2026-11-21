@@ -466,11 +466,13 @@ footer { margin: 12px 0 48px; padding: 20px 4px 0; font-size: 12.5px; line-heigh
   function renderLaw(box, data) {
     box.textContent = "";
     var head = data.heading || shortLabel(data.label);
+    // 인용이 항까지 지정했으면 그 항만 보여 준다 (조 전체는 법제처 원문 링크로)
+    var only = data.paras && data.highlight ? data.paras.filter(function (p) { return String(p.no) === String(data.highlight); }) : [];
+    if (only.length) head += " 제" + data.highlight + "항";
     box.appendChild(el("p", "heading", head));
-    if (data.paras) {                              // 조 본문: 인용된 항을 강조한다
-      data.paras.forEach(function (p) {
-        var node = el("p", (data.highlight && p.no === data.highlight) ? "hl" : null, clean(p.text));
-        box.appendChild(node);
+    if (data.paras) {                              // 조 본문: 항 지정이 없으면 조 전체
+      (only.length ? only : data.paras).forEach(function (p) {
+        box.appendChild(el("p", null, clean(p.text)));
       });
     } else if (data.raw) {                         // 법제처 원문 괘선 표
       var pre = el("p", "raw", clean(data.text)); box.appendChild(pre);
