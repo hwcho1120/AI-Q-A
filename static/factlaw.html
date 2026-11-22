@@ -202,6 +202,18 @@ li:last-child > .law-btn[aria-expanded="false"] { border-bottom: 0; }
 .tag-deleg + .headline { margin-top: 10px; }
 .next { margin-top: 26px; padding-top: 20px; border-top: 1px solid var(--line); }
 .next h3 { margin: 0 0 2px; font-size: 14px; font-weight: 600; color: var(--ink-3); }
+/* 답변 뒤 '그래서 이제' 안내: 답 종류에 따라 할 일 · 정하는 곳 · 확인할 곳 */
+.todo { margin: 20px 0 0; padding: 16px 18px; border-radius: var(--r-md); background: var(--blue-soft); }
+.todo .k { display: inline-block; margin: 0 0 4px; font-size: 13.5px; font-weight: 800; color: var(--blue); }
+.todo p { margin: 0; font-size: 15.5px; line-height: 1.6; color: var(--ink); }
+.todo a { color: var(--blue); font-weight: 700; text-decoration: none; white-space: nowrap; }
+.todo a:hover { text-decoration: underline; }
+/* 문장 앞부분 칩: 누르면 입력창에 앞부분이 들어가고 이어서 쓰면 된다 */
+.starters { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 6px 8px; margin: 0 0 30px; }
+.starters .lb { font-size: 13.5px; color: var(--ink-3); margin-right: 2px; }
+.starter { border: 1px dashed color-mix(in srgb, var(--blue) 45%, transparent); background: transparent; color: var(--ink-2); font-size: 14px; padding: 7px 13px; border-radius: 999px; cursor: pointer; min-height: 36px; }
+.starter:hover { color: var(--blue); background: var(--blue-soft); }
+.topics .sub { margin: -6px 0 14px; text-align: center; font-size: 14px; color: var(--ink-3); }
 
 /* 확인 불가 / 오류 */
 .nf-icon { width: 44px; height: 44px; border-radius: 50%; background: var(--yellow-soft); color: var(--yellow-ink); display: grid; place-items: center; font-weight: 800; font-size: 22px; margin-top: 18px; }
@@ -319,7 +331,9 @@ footer { margin: 12px 0 48px; padding: 20px 4px 0; font-size: 12.5px; line-heigh
     </form>
 
     <section class="block topics" aria-labelledby="topics-h">
-      <h2 id="topics-h">자주 묻는 질문</h2>
+      <div class="starters" id="starters"><span class="lb">이렇게 시작해 보세요</span></div>
+      <h2 id="topics-h">서울 첫 주, 이럴 때 물어보세요</h2>
+      <p class="sub">서울에서 첫 직장을 시작한 분들이 순간마다 궁금해하는 질문이에요</p>
       <div class="chips" id="chips"></div>
       <ul class="rows" id="examples"></ul>
     </section>
@@ -355,30 +369,32 @@ footer { margin: 12px 0 48px; padding: 20px 4px 0; font-size: 12.5px; line-heigh
 (function () {
   "use strict";
 
-  /* 상황 카드: 서울에서 새 생활을 시작한 사회초년생의 하루 순서. 엔진은 6종 전체에 답하므로 마지막 카드에 나머지 조례를 둔다.
+  /* 상황 카드: 서울에서 첫 직장을 시작한 사회초년생의 첫 주를 순간별로 묶는다 (시연 영상 네 장면과 같은 순서).
+     엔진은 6종 전체에 답하므로 마지막 카드에 나머지 조례를 둔다. ph = 그 카드를 골랐을 때 입력창 예시 문구.
      예시 질문은 모두 엔진으로 답이 확인된 문장만 넣는다 (11/21 main 기준). */
   var TOPICS = [
-    { name: "반려견", qs: [
+    { name: "이사 온 날", ph: "예) 본가에서 데려온 강아지, 서울에서 등록해야 하나요?", qs: [
       "본가에서 데려온 강아지를 서울에서 키우려면 동물등록을 해야 하나요?",
-      "서울시 반려견 놀이터는 몇 시까지 해?",
-      "맹견을 데리고 어린이공원에 들어가도 되나요?" ] },
-    { name: "자전거", qs: [
+      "청년이 주거 관련 보증보험료 지원을 받으려면 어떤 조건이 필요한가요?" ] },
+    { name: "출근길", ph: "예) 회사 근처 자전거 주차구역, 돈 내야 하나요?", qs: [
       "회사 근처 자전거 주차구역이 있던데, 돈 내야하나?",
       "따릉이로 출퇴근하면 정기권 할인 같은 게 있어?",
       "자전거 타다 다치면 서울시가 보상해 줘?" ] },
-    { name: "사회초년생 · 청년", qs: [
+    { name: "주말 산책", ph: "예) 서울시 반려견 놀이터는 몇 시까지 하나요?", qs: [
+      "서울시 반려견 놀이터는 몇 시까지 해?",
+      "맹견을 데리고 어린이공원에 들어가도 되나요?",
+      "강아지랑 공원 산책하는데 공원에서 담배 피우면 과태료가 얼마인가요?" ] },
+    { name: "첫 월급 즈음", ph: "예) 사회초년생이 받을 수 있는 지원이 있나요?", qs: [
       "서울 사는 사회초년생이 받을 수 있는 지원이 조례에 있어?",
-      "청년이 주거 관련 보증보험료 지원을 받으려면 어떤 조건이 필요한가요?",
       "서울시 청년 기본 조례에서 말하는 청년은 몇 살부터 몇 살까지인가요?" ] },
-    { name: "공원", qs: [
-      "강아지랑 공원 산책하는데 공원에서 담배 피우면 과태료가 얼마인가요?",
+    { name: "그 밖에", qs: [
+      "지하철역 출입구 앞에서 담배를 피우면 과태료가 얼마인가요?",
+      "도시공원 시설을 예약했는데 사용일 3일 전에 취소하면 이용료를 얼마나 돌려받나요?",
       "어린이공원에서 술을 마시면 어떻게 되나요?",
-      "도시공원 시설을 예약했는데 사용일 3일 전에 취소하면 이용료를 얼마나 돌려받나요?" ] },
-    { name: "그 밖의 조례", qs: [
-      "경차를 서울시 공영주차장에 세우면 주차요금이 할인되나요?",
-      "공영주차장 1급지 노상주차장 요금은 5분에 얼마인가요?",
-      "지하철역 출입구 앞에서 담배를 피우면 과태료가 얼마인가요?" ] }
+      "경차를 서울시 공영주차장에 세우면 주차요금이 할인되나요?" ] }
   ];
+  /* 문장 앞부분 칩: '상황 + 궁금한 것'으로 묻도록 상황만 먼저 넣어 준다. 자치구 이름은 넣지 않는다 (자치구 규칙에 걸림). */
+  var STARTERS = ["자전거로 출퇴근하는데 ", "강아지랑 산책하다가 ", "서울에 처음 이사 왔는데 ", "사회초년생인데 "];
   var MAX_SESSIONS = 10, MAX_TURNS = 12, TIMEOUT_MS = 90000;
   var PH_HOME = "예) 회사 근처 자전거 주차구역, 돈 내야 하나요?", PH_FOLLOW = "이어서 궁금한 점을 물어보세요";
 
@@ -409,6 +425,8 @@ footer { margin: 12px 0 48px; padding: 20px 4px 0; font-size: 12.5px; line-heigh
     Array.prototype.forEach.call(chipsEl.children, function (b, k) { b.setAttribute("aria-pressed", String(k === i)); });
     exEl.hidden = i < 0;                     // i = -1: 아무 카드도 고르지 않은 상태 (예시 질문 숨김)
     exEl.textContent = "";
+    phHome = (i >= 0 && TOPICS[i].ph) || PH_HOME;   // 고른 순간에 맞는 입력창 예시 문구
+    if (stage.dataset.state === "home" && !qEl.value) qEl.placeholder = phHome;
     if (i < 0) return;
     var cur = chipsEl.children[i];
     if (cur && cur.scrollIntoView && chipsEl.scrollWidth > chipsEl.clientWidth) cur.scrollIntoView({ inline: "center", block: "nearest", behavior: "smooth" });
@@ -424,7 +442,17 @@ footer { margin: 12px 0 48px; padding: 20px 4px 0; font-size: 12.5px; line-heigh
     b.addEventListener("click", function () { pickTopic(b.getAttribute("aria-pressed") === "true" ? -1 : i); });   // 고른 카드를 다시 누르면 해제
     chipsEl.appendChild(b);
   });
+  var phHome = PH_HOME;
   pickTopic(0);
+  /* 문장 앞부분 칩: 누르면 앞부분을 넣고 커서를 끝에 둔다. 이용자는 궁금한 것만 이어 쓰면 된다. */
+  STARTERS.forEach(function (s) {
+    var b = el("button", "starter", s.trim() + "…"); b.type = "button";
+    b.addEventListener("click", function () {
+      qEl.value = s; autosize(); qEl.focus();
+      try { qEl.setSelectionRange(s.length, s.length); } catch (e) { /* 선택 범위를 못 바꿔도 입력에는 문제없음 */ }
+    });
+    $("starters").appendChild(b);
+  });
 
   /* ---------- 답변 그리기 ---------- */
   function splitAnswer(text) {
@@ -649,20 +677,8 @@ footer { margin: 12px 0 48px; padding: 20px 4px 0; font-size: 12.5px; line-heigh
     groupCites(r.citation).forEach(function (g) { ul2.appendChild(lawItem(g)); });
     sec.appendChild(ul2);
     if (r.effective_date) sec.appendChild(el("p", "foot-meta", "조례 시행일 " + r.effective_date));
-    var depts = deptsFor(r.citation);
-    if (depts.length) {
-      var dp = el("p", "dept");
-      dp.appendChild(document.createTextNode("담당 부서 "));
-      depts.forEach(function (d, i) {
-        if (i) dp.appendChild(document.createTextNode(" · "));
-        dp.appendChild(document.createTextNode("서울시 " + d.dept + " "));
-        var tel = el("a", null, d.tel); tel.href = "tel:" + d.tel.replace(/-/g, ""); dp.appendChild(tel);
-      });
-      sec.appendChild(dp);
-      sec.appendChild(el("p", "foot-meta", "조례 기준 안내예요. 실제 신청 · 처분은 담당 부서에 확인해 주세요. 어디에 물을지 모르겠으면 ☎ 120 다산콜재단."));
-    } else {
-      sec.appendChild(el("p", "foot-meta", "조례 기준 안내예요. 실제 신청 · 처분은 담당 부서(☎ 120 다산콜재단)에 확인해 주세요."));
-    }
+    sec.appendChild(el("p", "foot-meta", "조례 기준 안내예요. 실제 신청 · 처분은 담당 부서에 확인해 주세요. 어디에 물을지 모르겠으면 ☎ 120 다산콜재단."));
+    card.appendChild(todoBox(r, q, parts.head));           // 답 바로 아래, 근거 위: 그래서 이제 뭘 하면 되는지
     card.appendChild(sec);
     buttons(card, r.answer + "\n\n근거: " + r.citation.map(shortLabel).join(", ") + (r.source_url ? "\n원문: " + r.source_url : ""));
     nextChips(card, q, r.citation[0] || "");
@@ -688,6 +704,29 @@ footer { margin: 12px 0 48px; padding: 20px 4px 0; font-size: 12.5px; line-heigh
     { law: "금연", dept: "건강관리과", tel: "02-2133-9467" },
     { law: "주차장", dept: "주차계획과", tel: "02-2133-2353" }
   ];
+  /* 답변 뒤 '그래서 이제' 안내. 답 종류는 이미 있는 판별(위임 문구, 네/아니요 앞머리)과 질문 낱말로만 나누고,
+     연락처는 위 DEPTS 표만 쓴다. 조례에 없는 새 사실(서류 · 절차 · 금액)은 지어내지 않는다. */
+  function todoKind(r, q, head) {            // head = 답의 첫 문장. 위임 여부는 결론 문장으로만 본다 (본문 곁가지 언급에 끌려가지 않게)
+    var a = r.answer || "", no = /^(아니요|아니오)(?=[,.\s])/.test(a);
+    if (/시장이 따로 정|따로 정하므로/.test(head || a)) return ["정하는 곳", "세부 내용은 조례가 아니라 서울시가 따로 정해요. 정확한 내용은 이곳에 물어보세요."];
+    if (!no && /과태료|벌금/.test(q + a)) return ["알아 두기", "부과 기준은 위 근거 조항에 있어요. 부과 · 이의 절차는 이곳에 확인하세요."];
+    if (/요금|이용료|주차료|할인|감면|환불|돌려받|무료|돈 내/.test(q)) return ["확인할 곳", "실제 적용 금액은 이용하는 시설 · 운영 기관 안내로 한 번 더 확인하세요. 문의는 이곳으로."];
+    if (!no && /해야|등록|신고|신청|받으려면|지원|조건|보상/.test(q)) return ["할 일", "신청 · 등록 방법과 필요한 서류는 이곳에 확인하세요."];
+    return ["더 궁금하면", "자세한 내용은 이곳에 물어보세요."];
+  }
+  function todoBox(r, q, head) {
+    var k = todoKind(r, q, head), box = el("div", "todo"), depts = deptsFor(r.citation);
+    box.appendChild(el("span", "k", k[0]));
+    var p = el("p"); p.appendChild(document.createTextNode(k[1] + " "));
+    if (!depts.length) depts = [{ dept: "", tel: "120" }];
+    depts.forEach(function (d, i) {
+      if (i) p.appendChild(document.createTextNode(" · "));
+      p.appendChild(document.createTextNode(d.dept ? "서울시 " + d.dept + " " : "다산콜재단 "));
+      var tel = el("a", null, "☎ " + d.tel); tel.href = "tel:" + d.tel.replace(/-/g, ""); p.appendChild(tel);
+    });
+    box.appendChild(p);
+    return box;
+  }
   function deptsFor(cites) {                 // 인용된 조례 순서대로, 겹치지 않게 최대 2곳
     var out = [];
     (cites || []).forEach(function (c) {
@@ -715,7 +754,7 @@ footer { margin: 12px 0 48px; padding: 20px 4px 0; font-size: 12.5px; line-heigh
   function startNew() {                      // 새 세션: 추천 질문이 다시 보인다
     cur = newSessionObj();
     stage.dataset.state = "home"; resultEl.textContent = "";
-    qEl.value = ""; qEl.placeholder = PH_HOME; autosize();
+    qEl.value = ""; qEl.placeholder = phHome; autosize();
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
   function openSession(s) {
