@@ -153,6 +153,55 @@ async def llm_only(req: Q):
     return {"answer": text, "elapsed": round(time.time() - t0, 1)}
 
 
+_meta = None
+
+
+def _xml_tag(s, tag):
+    m = re.search(rf"<{tag}>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?</{tag}>", s, re.S)
+    return m.group(1).strip() if m else ""
+
+
+def _amend_reason(s):
+    """제개정이유의 '개정이유' 부분(주요내용 앞)을 한 문단으로."""
+    body = re.sub(r"<!\[CDATA\[|\]\]>", " ", _xml_tag(s, "제개정이유내용"))
+    body = re.sub(r"\s+", " ", body)
+    m = re.search(r"개정\s*이유\s*(.*?)(?:\d\.\s*주요\s*내용|◇\s*주요\s*내용|$)", body)
+    text = (m.group(1) if m else "").replace("○", " ").strip()
+    return re.sub(r"\s+", " ", text)
+
+
+def _law_meta():
+    """조례별 공포번호·최근 개정일·최근 개정 조항(항)·개정 이유. 출처: 법제처 원문 XML(data/raw)."""
+    global _meta
+    if _meta is not None:
+        return _meta
+    out = []
+    for law in _ordinances():
+        p = ROOT / "data" / "raw" / f"{law['mst']}.xml"
+        if not p.exists():
+            continue
+        s = p.read_text(encoding="utf-8")
+        d = _xml_tag(s, "공포일자")
+        if len(d) != 8:
+            continue
+        mark = f"{int(d[:4])}.{int(d[4:6])}.{int(d[6:])}"
+        amended = {}
+        for a in law["articles"]:
+            if mark not in a.get("text", ""):
+                continue
+            paras = [pp.get("no") for pp in a.get("paragraphs") or [] if pp.get("no") and mark in pp["text"]]
+            amended[a["article"]] = paras            # 빈 목록 = 조 전체(항 구분 없음)
+        out.append({"law": law["name"], "no": _xml_tag(s, "공포번호"), "date": mark,
+                    "reason": _amend_reason(s), "amended": amended})
+    _meta = out
+    return _meta
+
+
+@router.get("/api/lawmeta")
+def lawmeta():
+    return _law_meta()
+
+
 _ART = re.compile(r"(제\d+조(?:의\d+)?)(?:\s*제(\d+)항)?")
 
 

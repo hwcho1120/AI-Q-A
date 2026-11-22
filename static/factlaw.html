@@ -175,6 +175,12 @@ li:last-child > .law-btn[aria-expanded="false"] { border-bottom: 0; }
 .law p.hl { background: var(--blue-soft); color: var(--ink); border-radius: 8px; padding: 8px 12px; margin: 0 -12px 8px; }
 .law-more { display: block; margin: 4px 0 10px; padding: 8px 0; background: none; border: 0; color: var(--blue); font-size: 14.5px; font-weight: 600; cursor: pointer; }
 .law-more:hover { text-decoration: underline; }
+.law-btn > span:first-child { flex: 1; }
+.amend-tag { flex: none; margin: 0; padding: 2px 8px; border-radius: 999px; background: var(--yellow-soft); color: var(--yellow-ink); font-size: 12.5px; font-weight: 700; white-space: nowrap; }
+.amend-note { margin: 6px 0 12px; padding: 10px 14px; border-radius: 10px; background: var(--yellow-soft); color: var(--yellow-ink); font-size: 14.5px; }
+.amend-note p { margin: 0; }
+.amend-note summary { margin-top: 6px; cursor: pointer; font-weight: 600; }
+.amend-note details p { margin-top: 6px; line-height: 1.6; color: var(--ink-2); }
 .dept { margin: 14px 0 0; font-size: 15px; color: var(--ink, #1e1b3a); }
 .dept a { color: var(--blue); font-weight: 700; text-decoration: none; }
 .dept a:hover { text-decoration: underline; }
@@ -471,6 +477,16 @@ footer { margin: 12px 0 48px; padding: 20px 4px 0; font-size: 12.5px; line-heigh
     box.textContent = "";
     var head = data.heading || shortLabel(data.label);
     box.appendChild(el("p", "heading", head));
+    var am = amendFor(data.label || "", hls);
+    if (am) {                                      // 최근 개정에서 바뀐 조항: 개정일 + 개정 이유(펼쳐 보기)
+      var note = el("div", "amend-note");
+      note.appendChild(el("p", null, "이 조항은 " + am.date + " 개정으로 바뀌었어요."));
+      if (am.reason) {
+        var det = el("details"), sm = el("summary", null, "개정 이유 보기");
+        det.appendChild(sm); det.appendChild(el("p", null, am.reason)); note.appendChild(det);
+      }
+      box.appendChild(note);
+    }
     if (data.paras) {                              // 조 본문: 인용된 항만 먼저 보여 주고, 나머지는 '조문 전체 보기'로 펼친다
       var cited = hls && hls.length ? hls : [], rest = [];
       data.paras.forEach(function (p) {
@@ -509,7 +525,9 @@ footer { margin: 12px 0 48px; padding: 20px 4px 0; font-size: 12.5px; line-heigh
     if (data.source_url) {
       var p2 = el("p", "foot-meta"), a2 = el("a", null, "법제처에서 원문 보기");
       a2.href = data.source_url; a2.target = "_blank"; a2.rel = "noopener noreferrer";
-      p2.appendChild(document.createTextNode("조례 시행일 " + data.effective_date + " · ")); p2.appendChild(a2);
+      var lm = metaFor(data.label || "");
+      p2.appendChild(document.createTextNode((lm && lm.no ? "서울특별시조례 제" + lm.no + "호 · " : "") + "조례 시행일 " + data.effective_date + " · "));
+      p2.appendChild(a2);
       box.appendChild(p2);
     }
   }
@@ -527,12 +545,34 @@ footer { margin: 12px 0 48px; padding: 20px 4px 0; font-size: 12.5px; line-heigh
     return groups;
   }
 
+  /* 조례별 공포번호·최근 개정 정보 (/api/lawmeta, 법제처 원문 XML). 못 받아도 화면은 그대로 동작한다. */
+  var META = [];
+  fetch("/api/lawmeta").then(function (r) { return r.ok ? r.json() : []; })
+    .then(function (d) { META = Array.isArray(d) ? d : []; }).catch(function () {});
+  function metaFor(label) {
+    var best = null;
+    META.forEach(function (m) { if (label.indexOf(m.law) === 0 && (!best || m.law.length > best.law.length)) best = m; });
+    return best;
+  }
+  /* 인용한 조(항)가 그 조례의 최근 개정에서 바뀌었으면 메타를, 아니면 null */
+  function amendFor(label, hls) {
+    var m = metaFor(label); if (!m) return null;
+    var a = label.slice(m.law.length).trim().match(/^제\d+조(?:의\d+)?/);
+    var ap = a && m.amended ? m.amended[a[0]] : undefined;
+    if (!ap) return null;
+    if (!hls || !hls.length || !ap.length) return m;
+    return hls.some(function (n) { return ap.indexOf(n) >= 0; }) ? m : null;
+  }
+
   function lawItem(g) {
     var label = g.base, hls = g.paras;
     var title = shortLabel(label) + (hls.length ? " 제" + hls.join("·") + "항" : "");
     var li = el("li"), btn = el("button", "law-btn"), box = el("div", "law");
     btn.type = "button"; btn.setAttribute("aria-expanded", "false");
-    btn.appendChild(el("span", null, title)); btn.appendChild(el("span", "chev"));
+    btn.appendChild(el("span", null, title));
+    var am = amendFor(label, hls);
+    if (am) btn.appendChild(el("span", "amend-tag", am.date + " 개정"));
+    btn.appendChild(el("span", "chev"));
     box.hidden = true;
     btn.addEventListener("click", function () {
       var open = btn.getAttribute("aria-expanded") === "true";
