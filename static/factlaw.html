@@ -175,6 +175,9 @@ li:last-child > .law-btn[aria-expanded="false"] { border-bottom: 0; }
 .law p.hl { background: var(--blue-soft); color: var(--ink); border-radius: 8px; padding: 8px 12px; margin: 0 -12px 8px; }
 .law-more { display: block; margin: 4px 0 10px; padding: 8px 0; background: none; border: 0; color: var(--blue); font-size: 14.5px; font-weight: 600; cursor: pointer; }
 .law-more:hover { text-decoration: underline; }
+.dept { margin: 14px 0 0; font-size: 15px; color: var(--ink, #1e1b3a); }
+.dept a { color: var(--blue); font-weight: 700; text-decoration: none; }
+.dept a:hover { text-decoration: underline; }
 .law p.raw { font-family: ui-monospace, Menlo, monospace; font-size: 12.5px; overflow-x: auto; white-space: pre; }
 .law .tbl-wrap { overflow-x: auto; margin: 10px 0; border-radius: 10px; background: var(--card); }
 .law table { border-collapse: collapse; font-size: 14px; min-width: 100%; }
@@ -606,7 +609,20 @@ footer { margin: 12px 0 48px; padding: 20px 4px 0; font-size: 12.5px; line-heigh
     groupCites(r.citation).forEach(function (g) { ul2.appendChild(lawItem(g)); });
     sec.appendChild(ul2);
     if (r.effective_date) sec.appendChild(el("p", "foot-meta", "조례 시행일 " + r.effective_date));
-    sec.appendChild(el("p", "foot-meta", "조례 기준 안내예요. 실제 신청 · 처분은 담당 부서(☎ 120 다산콜재단)에 확인해 주세요."));
+    var depts = deptsFor(r.citation);
+    if (depts.length) {
+      var dp = el("p", "dept");
+      dp.appendChild(document.createTextNode("담당 부서 "));
+      depts.forEach(function (d, i) {
+        if (i) dp.appendChild(document.createTextNode(" · "));
+        dp.appendChild(document.createTextNode("서울시 " + d.dept + " "));
+        var tel = el("a", null, d.tel); tel.href = "tel:" + d.tel.replace(/-/g, ""); dp.appendChild(tel);
+      });
+      sec.appendChild(dp);
+      sec.appendChild(el("p", "foot-meta", "조례 기준 안내예요. 실제 신청 · 처분은 담당 부서에 확인해 주세요. 어디에 물을지 모르겠으면 ☎ 120 다산콜재단."));
+    } else {
+      sec.appendChild(el("p", "foot-meta", "조례 기준 안내예요. 실제 신청 · 처분은 담당 부서(☎ 120 다산콜재단)에 확인해 주세요."));
+    }
     card.appendChild(sec);
     buttons(card, r.answer + "\n\n근거: " + r.citation.map(shortLabel).join(", ") + (r.source_url ? "\n원문: " + r.source_url : ""));
     nextChips(card, q, r.citation[0] || "");
@@ -622,6 +638,23 @@ footer { margin: 12px 0 48px; padding: 20px 4px 0; font-size: 12.5px; line-heigh
     { law: "금연", qs: ["강아지랑 공원 산책하는데 공원에서 담배 피우면 과태료가 얼마인가요?", "지하철역 출입구 앞에서 담배를 피우면 과태료가 얼마인가요?"] },
     { law: "주차장", qs: ["경차를 서울시 공영주차장에 세우면 주차요금이 할인되나요?", "공영주차장 1급지 노상주차장 요금은 5분에 얼마인가요?"] }
   ];
+
+  /* 조례별 담당 부서·전화번호. 출처: 법제처 자치법규 원문의 담당부서명·전화번호 (data/raw, 2026-10-01 시행본) */
+  var DEPTS = [
+    { law: "동물보호", dept: "동물보호과", tel: "02-2133-7649" },
+    { law: "자전거", dept: "자전거PM과", tel: "02-2133-2413" },
+    { law: "청년", dept: "청년정책담당관", tel: "02-2133-6581" },
+    { law: "도시공원", dept: "정원도시정책과", tel: "02-2133-2017" },
+    { law: "금연", dept: "건강관리과", tel: "02-2133-9467" },
+    { law: "주차장", dept: "주차계획과", tel: "02-2133-2353" }
+  ];
+  function deptsFor(cites) {                 // 인용된 조례 순서대로, 겹치지 않게 최대 2곳
+    var out = [];
+    (cites || []).forEach(function (c) {
+      DEPTS.forEach(function (d) { if (c.indexOf(d.law) >= 0 && out.indexOf(d) < 0) out.push(d); });
+    });
+    return out.slice(0, 2);
+  }
 
   function nextChips(card, q, cite) {
     var hit = NEXT.filter(function (n) { return cite.indexOf(n.law) >= 0; })[0];
