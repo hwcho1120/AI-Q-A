@@ -173,6 +173,8 @@ li:last-child > .law-btn[aria-expanded="false"] { border-bottom: 0; }
 .law .heading { margin: 0 0 8px; font-weight: 700; color: var(--ink); }
 .law p { margin: 0 0 8px; white-space: pre-wrap; }
 .law p.hl { background: var(--blue-soft); color: var(--ink); border-radius: 8px; padding: 8px 12px; margin: 0 -12px 8px; }
+.law-more { display: block; margin: 4px 0 10px; padding: 8px 0; background: none; border: 0; color: var(--blue); font-size: 14.5px; font-weight: 600; cursor: pointer; }
+.law-more:hover { text-decoration: underline; }
 .law p.raw { font-family: ui-monospace, Menlo, monospace; font-size: 12.5px; overflow-x: auto; white-space: pre; }
 .law .tbl-wrap { overflow-x: auto; margin: 10px 0; border-radius: 10px; background: var(--card); }
 .law table { border-collapse: collapse; font-size: 14px; min-width: 100%; }
@@ -463,15 +465,27 @@ footer { margin: 12px 0 48px; padding: 20px 4px 0; font-size: 12.5px; line-heigh
     return out;
   }
 
-  function renderLaw(box, data) {
+  function renderLaw(box, data, hls) {
     box.textContent = "";
     var head = data.heading || shortLabel(data.label);
     box.appendChild(el("p", "heading", head));
-    if (data.paras) {                              // 조 본문: 인용된 항을 강조한다
+    if (data.paras) {                              // 조 본문: 인용된 항만 먼저 보여 주고, 나머지는 '조문 전체 보기'로 펼친다
+      var cited = hls && hls.length ? hls : [], rest = [];
       data.paras.forEach(function (p) {
-        var node = el("p", (data.highlight && p.no === data.highlight) ? "hl" : null, clean(p.text));
+        var hit = cited.indexOf(p.no) >= 0;
+        var node = el("p", hit ? "hl" : null, clean(p.text));
+        if (cited.length && !hit) { node.hidden = true; rest.push(node); }
         box.appendChild(node);
       });
+      if (rest.length) {
+        var more = el("button", "law-more", "조문 전체 보기 (나머지 " + rest.length + "개 항)"); more.type = "button";
+        more.addEventListener("click", function () {
+          var show = rest[0].hidden;
+          rest.forEach(function (n) { n.hidden = !show; });
+          more.textContent = show ? "인용된 항만 보기" : "조문 전체 보기 (나머지 " + rest.length + "개 항)";
+        });
+        box.appendChild(more);
+      }
     } else if (data.raw) {                         // 법제처 원문 괘선 표
       var pre = el("p", "raw", clean(data.text)); box.appendChild(pre);
     } else {
@@ -498,17 +512,32 @@ footer { margin: 12px 0 48px; padding: 20px 4px 0; font-size: 12.5px; line-heigh
     }
   }
 
-  function lawItem(label) {
+  /* 같은 조의 여러 항 인용("제6조 제1항", "제6조 제4항")은 한 줄("제6조 제1·4항")로 묶는다 */
+  function groupCites(cites) {
+    var groups = [], byBase = {};
+    (cites || []).forEach(function (c) {
+      var m = c.match(/^(.*제\d+조(?:의\d+)?)\s*제(\d+)항$/);
+      var base = m ? m[1] : c;
+      if (!byBase[base]) { byBase[base] = { base: base, paras: [] }; groups.push(byBase[base]); }
+      if (m && byBase[base].paras.indexOf(+m[2]) < 0) byBase[base].paras.push(+m[2]);
+    });
+    groups.forEach(function (g) { g.paras.sort(function (a, b) { return a - b; }); });
+    return groups;
+  }
+
+  function lawItem(g) {
+    var label = g.base, hls = g.paras;
+    var title = shortLabel(label) + (hls.length ? " 제" + hls.join("·") + "항" : "");
     var li = el("li"), btn = el("button", "law-btn"), box = el("div", "law");
     btn.type = "button"; btn.setAttribute("aria-expanded", "false");
-    btn.appendChild(el("span", null, shortLabel(label))); btn.appendChild(el("span", "chev"));
+    btn.appendChild(el("span", null, title)); btn.appendChild(el("span", "chev"));
     box.hidden = true;
     btn.addEventListener("click", function () {
       var open = btn.getAttribute("aria-expanded") === "true";
       btn.setAttribute("aria-expanded", String(!open)); box.hidden = open;
       if (open || box.dataset.loaded) return;
       box.textContent = "원문을 불러오는 중이에요.";
-      var done = function (d) { renderLaw(box, d); box.dataset.loaded = "1"; };
+      var done = function (d) { renderLaw(box, d, hls); box.dataset.loaded = "1"; };
       if (evCache[label]) return done(evCache[label]);
       fetch("/api/source?label=" + encodeURIComponent(label))
         .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
@@ -575,7 +604,7 @@ footer { margin: 12px 0 48px; padding: 20px 4px 0; font-size: 12.5px; line-heigh
 
     var sec = el("div", "sec"); sec.appendChild(el("h3", null, "근거 조항 · 눌러서 원문 보기"));
     var ul2 = el("ul", "rows-plain"); ul2.style.cssText = "list-style:none;margin:0;padding:0";
-    r.citation.forEach(function (c) { ul2.appendChild(lawItem(c)); });
+    groupCites(r.citation).forEach(function (g) { ul2.appendChild(lawItem(g)); });
     sec.appendChild(ul2);
     if (r.effective_date) sec.appendChild(el("p", "foot-meta", "조례 시행일 " + r.effective_date));
     sec.appendChild(el("p", "foot-meta", "조례 기준 안내예요. 실제 신청 · 처분은 담당 부서(☎ 120 다산콜재단)에 확인해 주세요."));
