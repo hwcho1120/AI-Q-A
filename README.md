@@ -35,7 +35,7 @@ python -X utf8 build_index.py
 uvicorn app:app --host 0.0.0.0 --port 8000
 ```
 - **채점용 API 엔드포인트**: `POST /ask` (`{"question": "..."}`)
-- **시민용 질문 웹 화면**: `GET /` ([static/index.html](static/index.html))
+- **시민용 질문 웹 화면**: `GET /factlaw` (`/` 접속 시 자동 이동, 라이브: `https://165.132.221.100/factlaw`)
 - **관리자 검토·승인 화면**: `GET /admin` ([static/admin.html](static/admin.html))
 - **헬스 체크**: `GET /health`
 
